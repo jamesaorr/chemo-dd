@@ -19,9 +19,9 @@ rm(list = ls())
 Load data
 
 ```{r}
-CC <- read.csv("cfu_counts_JO.csv")
+CC <- read.csv("data/cfu_counts_JO.csv")
 
-outflow <- read.csv("outflow_rates_JO.csv")
+outflow <- read.csv("data/outflow_rates_JO.csv")
 ```
 
 
@@ -29,13 +29,7 @@ Average counts
 
 ```{r}
 CC <- CC %>%
-  
-  rowwise() %>%
-  
-  mutate(av_counts = mean(c(dot1, dot2, dot3, dot4, dot5,
-                             dot6, dot7, dot8, dot9, dot10), 
-                           na.rm = T))
-  
+  mutate(av_counts = rowMeans(across(dot1:dot10), na.rm = TRUE))
 ```
 
 Densities
@@ -43,14 +37,12 @@ Densities
 ```{r}
 CC <- CC %>%
   
-  rowwise() %>%
-  
   # each dot is 5ul, so divide by 5 to get counts per ul
   mutate(av_counts_ul = av_counts / 5) %>%
   
-  # multiply by dilution factor to get CFUs per ml 
-  # first row is 100ul so it would be: count * 10 ^ 1
-  # six row would be: count * 10 ^ 6 
+  # multiply by 10^dilution factor to get CFUs per ml 
+  # first row is 100ul of sample so it would be: count * 10 ^ 1 to get 1ml
+  # six row would be: count * 10 ^ 6 to get to 1ml
   mutate(cfu_ml = av_counts_ul * 10 ^ dilution_factor) %>% 
   
   # get CFUs per ul
@@ -62,31 +54,28 @@ Create sampling factor
 ```{r}
 CC <- CC %>%
   
+  # removes the counts from the overnights
   filter(day != 0) %>%
   
+  # factor for every combination of day and time
   mutate(sample = interaction(day, time))
-  
-CC$sample <- as.factor(CC$sample)
 ```
 
 Join in outflow volumes 
 
 ```{r}
+# mean outflow volume across day 1 and day 2 per bioreactor
 outflow <- outflow %>%
-  
   select(c(bioreactor, day_measured, volume_out)) %>%
-  
   group_by(bioreactor) %>%
-  
   summarise(outflow_mean = mean(volume_out))
 
+# join the mean outflow volume into colony count data (by ID/bioreactor)
 CC <- CC %>%
-  
   left_join(outflow, by = c("ID" = "bioreactor"))
-
 ```
 
-Calculate dilution rate 
+Calculate dilution rate (this seems to be what Kaleigh used for y axis)
 
 ```{r}
 CC <- CC %>%
@@ -99,7 +88,7 @@ CC <- CC %>%
 ```
 
 
-Quick plots of cfus vs inflow setting
+Quick plots of CFUs by inflow setting 
 
 ```{r, fig.height=4, fig.width=7}
 
@@ -119,7 +108,6 @@ ggplot(CC_plot, aes(x = cfu_ul, y = inflow_setting, color = sample)) +
 2a = sampling on the second day (after inflow)
 3b = sampling on the third day (before inflow)
 
-
 ```{r}
 ggplot(CC_plot, aes(x = cfu_ul, y = inflow_setting, color = sample)) +
   geom_point() + 
@@ -129,7 +117,7 @@ ggplot(CC_plot, aes(x = cfu_ul, y = inflow_setting, color = sample)) +
   facet_wrap(~ sample, scales = "free_x")
 ```
 
-Quick plot of CFUs vs dilution rate
+Quick plot of CFUs by dilution rate
 
 ```{r, fig.height=4, fig.width=7}
 
@@ -152,8 +140,6 @@ ggplot(CC_plot, aes(x = cfu_ul, y = dilution_rate, color = sample)) +
   theme_light() +
   facet_wrap(~ sample, scales = "free_x")
 ```
-
-
 
 Check correlation between before and after sampling on day 2 
 
