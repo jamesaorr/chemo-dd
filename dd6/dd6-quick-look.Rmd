@@ -1,0 +1,181 @@
+---
+title: "dd6"
+output: html_notebook
+author: James Orr
+---
+
+Quick look at dd6 results
+
+Set up 
+
+```{r}
+#### Required packages
+library(tidyverse)        
+
+#### Clear  environment 
+rm(list = ls())   
+```
+
+Load data
+
+```{r}
+CC <- read.csv("cfu_counts_JO.csv")
+
+outflow <- read.csv("outflow_rates_JO.csv")
+```
+
+
+Average counts
+
+```{r}
+CC <- CC %>%
+  
+  rowwise() %>%
+  
+  mutate(av_counts = mean(c(dot1, dot2, dot3, dot4, dot5,
+                             dot6, dot7, dot8, dot9, dot10), 
+                           na.rm = T))
+  
+```
+
+Densities
+
+```{r}
+CC <- CC %>%
+  
+  rowwise() %>%
+  
+  # each dot is 5ul, so divide by 5 to get counts per ul
+  mutate(av_counts_ul = av_counts / 5) %>%
+  
+  # multiply by dilution factor to get CFUs per ml 
+  # first row is 100ul so it would be: count * 10 ^ 1
+  # six row would be: count * 10 ^ 6 
+  mutate(cfu_ml = av_counts_ul * 10 ^ dilution_factor) %>% 
+  
+  # get CFUs per ul
+  mutate(cfu_ul = cfu_ml/1000)
+```
+
+Create sampling factor 
+
+```{r}
+CC <- CC %>%
+  
+  filter(day != 0) %>%
+  
+  mutate(sample = interaction(day, time))
+  
+CC$sample <- as.factor(CC$sample)
+```
+
+Join in outflow volumes 
+
+```{r}
+outflow <- outflow %>%
+  
+  select(c(bioreactor, day_measured, volume_out)) %>%
+  
+  group_by(bioreactor) %>%
+  
+  summarise(outflow_mean = mean(volume_out))
+
+CC <- CC %>%
+  
+  left_join(outflow, by = c("ID" = "bioreactor"))
+
+```
+
+Calculate dilution rate 
+
+```{r}
+CC <- CC %>%
+  
+  # volume coming in every hour (in ml)
+  mutate(outflow_per_hour = outflow_mean/24) %>%
+  
+  # as a fraction of the volume of the vial (21ml) to get rate of dilution 
+  mutate(dilution_rate = outflow_per_hour/21)
+```
+
+
+Quick plots of cfus vs inflow setting
+
+```{r, fig.height=4, fig.width=7}
+
+# removing the control (all at 0) and M1 reactor - pump failed on first day
+CC_plot <- CC %>%
+  filter(!(ID %in% c("M1", "M5")))
+
+ggplot(CC_plot, aes(x = cfu_ul, y = inflow_setting, color = sample)) +
+  geom_point() + 
+  #geom_smooth(method = "loess", se = FALSE, span = 10) + 
+  labs(x = "CFU/μL", y = "Inflow Setting", color = "Sample") +
+  theme_minimal()
+
+```
+1b = sampling on the first day (before inflow)
+2b = sampling on the second day (before inflow)
+2a = sampling on the second day (after inflow)
+3b = sampling on the third day (before inflow)
+
+
+```{r}
+ggplot(CC_plot, aes(x = cfu_ul, y = inflow_setting, color = sample)) +
+  geom_point() + 
+  #geom_smooth(method = "loess", se = FALSE, span = 10) + 
+  labs(x = "CFU/μL", y = "Inflow Setting", color = "Sample") +
+  theme_light() +
+  facet_wrap(~ sample, scales = "free_x")
+```
+
+Quick plot of CFUs vs dilution rate
+
+```{r, fig.height=4, fig.width=7}
+
+CC_plot <- CC %>%
+  filter(!(ID %in% c("M1", "M5")))
+
+ggplot(CC_plot, aes(x = cfu_ul, y = dilution_rate, color = sample)) +
+  geom_point() + 
+  #geom_smooth(method = "loess", se = FALSE, span = 1) + 
+  labs(x = "CFU/μL", y = "Dilution rate (ml/hour/ml)", color = "Sample") +
+  theme_minimal()
+
+```
+
+```{r}
+ggplot(CC_plot, aes(x = cfu_ul, y = dilution_rate, color = sample)) +
+  geom_point() + 
+  #geom_smooth(method = "loess", se = FALSE, span = 10) + 
+  labs(x = "CFU/μL", y = "Dilution rate (ml/hour/ml)", color = "Sample") +
+  theme_light() +
+  facet_wrap(~ sample, scales = "free_x")
+```
+
+
+
+Check correlation between before and after sampling on day 2 
+
+```{r, fig.width=4, fig.height=4}
+
+CC_wide <- CC %>%
+  
+  select(ID, sample, cfu_ul) %>%
+  
+    pivot_wider(names_from = sample, 
+                values_from = cfu_ul, 
+                names_prefix = "cfu_ul_") %>%
+  
+  filter(ID != "M5")
+
+
+ggplot(CC_wide, aes(x = cfu_ul_2.b, y = cfu_ul_2.a)) +
+  geom_point() +  # Scatter plot points
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  geom_text(aes(label = ID), vjust = 1.5, hjust = 0, size = 3) + 
+  labs(x = "CFU Before", y = "CFU After") +
+  theme_minimal()
+
+```
+
