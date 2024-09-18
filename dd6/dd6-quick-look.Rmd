@@ -37,15 +37,15 @@ Densities
 ```{r}
 CC <- CC %>%
   
-  # each dot is 5ul, so divide by 5 to get counts per ul
-  mutate(av_counts_ul = av_counts / 5) %>%
-  
   # multiply by 10^dilution factor to get CFUs per ul 
   # first row is 100ul of sample so it would be: count * 10 ^ 1 to get 1ul
   # six row would be: count * 10 ^ 6 to get to 1ul
-  # the very first row is diluted
-  mutate(cfu_ul = av_counts_ul * 10 ^ dilution_factor)
+  # remember that the very first row is diluted!
+  mutate(cfu_undil = av_counts * 10 ^ dilution_factor) %>%
   
+  # each dot is 5ul, so divide by 5 to get counts per ul
+  mutate(cfu_ul = cfu_undil / 5)
+
 ```
 
 Create sampling factor 
