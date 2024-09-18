@@ -1,4 +1,4 @@
-﻿experiment,day,sampling_type,reactor,OD
+﻿experiment_replicate,day,time,ID,OD
 dd6,2,b,M0,0.105
 dd6,2,b,M1,0.459
 dd6,2,b,M2,0.229

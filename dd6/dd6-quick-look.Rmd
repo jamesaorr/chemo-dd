@@ -20,8 +20,8 @@ Load data
 
 ```{r}
 CC <- read.csv("data/cfu_counts_JO.csv")
-
 outflow <- read.csv("data/outflow_rates_JO.csv")
+od <- read.csv("data/OD/od_JO.csv")
 ```
 
 
@@ -74,6 +74,15 @@ CC <- CC %>%
   left_join(outflow, by = c("ID" = "bioreactor"))
 ```
 
+Join in the OD data
+
+```{r}
+# all variables (except OD) are named consistently
+CC <- CC %>%
+  left_join(od, by = join_by(experiment_replicate, day, time, ID))
+```
+
+
 Calculate dilution rate (this seems to be what Kaleigh used for y axis)
 
 ```{r}
@@ -87,7 +96,7 @@ CC <- CC %>%
 ```
 
 
-Quick plots of CFUs by inflow setting 
+Quick plots of CFUs by dilution rate
 
 ```{r, fig.height=4, fig.width=7}
 
@@ -95,33 +104,6 @@ Quick plots of CFUs by inflow setting
 CC_plot <- CC %>%
   filter(!(ID %in% c("M1", "M5")))
 
-ggplot(CC_plot, aes(x = cfu_ul, y = inflow_setting, color = sample)) +
-  geom_point() + 
-  #geom_smooth(method = "loess", se = FALSE, span = 10) + 
-  labs(x = "CFU/μL", y = "Inflow Setting", color = "Sample") +
-  theme_minimal()
-
-```
-1b = sampling on the first day (before inflow)
-2b = sampling on the second day (before inflow)
-2a = sampling on the second day (after inflow)
-3b = sampling on the third day (before inflow)
-
-```{r}
-ggplot(CC_plot, aes(x = cfu_ul, y = inflow_setting, color = sample)) +
-  geom_point() + 
-  #geom_smooth(method = "loess", se = FALSE, span = 10) + 
-  labs(x = "CFU/μL", y = "Inflow Setting", color = "Sample") +
-  theme_light() +
-  facet_wrap(~ sample, scales = "free_x")
-```
-
-Quick plot of CFUs by dilution rate
-
-```{r, fig.height=4, fig.width=7}
-
-CC_plot <- CC %>%
-  filter(!(ID %in% c("M1", "M5")))
 
 ggplot(CC_plot, aes(x = cfu_ul, y = dilution_rate, color = sample)) +
   geom_point() + 
@@ -139,6 +121,33 @@ ggplot(CC_plot, aes(x = cfu_ul, y = dilution_rate, color = sample)) +
   theme_light() +
   facet_wrap(~ sample, scales = "free_x")
 ```
+
+
+Quick plots of OD by dilution rate
+
+```{r, fig.height=4, fig.width=7}
+
+ggplot(CC_plot, aes(x = OD, y = dilution_rate, color = sample)) +
+  geom_point() + 
+  #geom_smooth(method = "loess", se = FALSE, span = 1) + 
+  labs(x = "OD", y = "Dilution rate (ml/hour/ml)", color = "Sample") +
+  theme_minimal()
+
+```
+
+
+
+
+Check correlation between outflow volume and inflow setting
+
+```{r}
+ggplot(CC, aes(x = inflow_setting, y = outflow_mean)) +
+  geom_point() +  # Scatter plot points
+  geom_text(aes(label = ID), vjust = 1.5, hjust = 0, size = 3) + 
+  labs(x = "Inflow setting", y = "Outflow (ml/day") +
+  theme_minimal()
+```
+
 
 Check correlation between before and after sampling on day 2 
 
