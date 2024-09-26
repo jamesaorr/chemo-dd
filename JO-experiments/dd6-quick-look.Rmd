@@ -59,9 +59,47 @@ CC <- CC %>%
   # removes the counts from the overnights
   filter(day != 0) %>%
   
-  # factor for every combination of day and time
-  mutate(sample = interaction(day, time))
+  # factor for every combination of day and time and experiment_replicate
+  mutate(sample = interaction(day, time, experiment_replicate))
 ```
+
+
+Quick plot of CFUs by inflow setting (comparing across DD6 and DD7)
+
+```{r, fig.height=4, fig.width=7}
+
+## only keep days 1 (and 2) for now and remove M1 from dd6 (pump stopped)
+CC_plot <- CC %>%
+  #filter(day %in% c(1, 2)) %>%
+  filter(day == 1) %>%
+  filter(!(ID == "M1" & experiment_replicate == "dd6"))
+
+ggplot(CC_plot, aes(x = cfu_ul, y = inflow_setting, color = sample)) +
+  geom_point() + 
+  labs(x = "CFU/μL", y = "Inflow setting", color = "Sample") +
+  theme_minimal()
+```
+
+Quick plot of OD by inflow setting (comparing across DD6 and DD7)
+
+```{r, fig.height=4, fig.width=7}
+
+# all variables (except OD) are named consistently
+CC <- CC %>%
+  left_join(od, by = join_by(experiment_replicate, day, time, ID))
+
+## only keep days 1 and 2 for now and remove M1 from dd6 (pump stopped)
+CC_plot <- CC %>%
+  filter(day %in% c(1, 2)) %>%
+  filter(!(ID == "M1" & experiment_replicate == "dd6"))
+
+ggplot(CC_plot, aes(x = OD, y = inflow_setting, color = sample)) +
+  geom_point() + 
+  labs(x = "OD", y = "Inflow setting", color = "Sample") +
+  theme_minimal()
+```
+
+
 
 Join in outflow volumes 
 
@@ -105,7 +143,6 @@ CC <- CC %>%
   # as a fraction of the volume of the vial (21ml) to get rate of dilution 
   mutate(dilution_rate = outflow_per_hour/21)
 ```
-
 
 Quick plots of CFUs by dilution rate
 
