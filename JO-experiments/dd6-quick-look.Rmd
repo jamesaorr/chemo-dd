@@ -63,59 +63,23 @@ CC <- CC %>%
   mutate(sample = interaction(day, time, experiment_replicate))
 ```
 
-
-Quick plot of CFUs by inflow setting (comparing across DD6 and DD7)
-
-```{r, fig.height=4, fig.width=7}
-
-## only keep days 1 (and 2) for now and remove M1 from dd6 (pump stopped)
-CC_plot <- CC %>%
-  #filter(day %in% c(1, 2)) %>%
-  filter(day == 1) %>%
-  filter(!(ID == "M1" & experiment_replicate == "dd6"))
-
-ggplot(CC_plot, aes(x = cfu_ul, y = inflow_setting, color = sample)) +
-  geom_point() + 
-  labs(x = "CFU/μL", y = "Inflow setting", color = "Sample") +
-  theme_minimal()
-```
-
-Quick plot of OD by inflow setting (comparing across DD6 and DD7)
-
-```{r, fig.height=4, fig.width=7}
-
-# all variables (except OD) are named consistently
-CC <- CC %>%
-  left_join(od, by = join_by(experiment_replicate, day, time, ID))
-
-## only keep days 1 and 2 for now and remove M1 from dd6 (pump stopped)
-CC_plot <- CC %>%
-  filter(day %in% c(1, 2)) %>%
-  filter(!(ID == "M1" & experiment_replicate == "dd6"))
-
-ggplot(CC_plot, aes(x = OD, y = inflow_setting, color = sample)) +
-  geom_point() + 
-  labs(x = "OD", y = "Inflow setting", color = "Sample") +
-  theme_minimal()
-```
-
-
-
 Join in outflow volumes 
 
 ```{r}
 # mean outflow volume across day 1 and day 2 per bioreactor
 outflow <- outflow %>%
-  select(c(bioreactor, day_measured, volume_out)) %>%
-  group_by(bioreactor) %>%
-  summarise(outflow_mean = mean(volume_out))
+  select(c(bioreactor, day_measured, volume_out, experiment_rep, time_elapsed)) %>%
+  mutate(outflow_per_hour = volume_out/time_elapsed) %>%
+  group_by(bioreactor, experiment_rep) %>%
+  summarise(outflow_per_hour_mean = mean(outflow_per_hour))
 
 # join the mean outflow volume into colony count data (by ID/bioreactor)
 CC <- CC %>%
-  left_join(outflow, by = c("ID" = "bioreactor"))
+  left_join(outflow, by = c("ID" = "bioreactor", "experiment_replicate" = "experiment_rep"))
 ```
 
-Join in the OD data (does this need to be "blanked" - should we minus everything by M5?)
+
+Join in the OD data (does this need to be "blanked" - should we minus everything by control)
 
 ```{r}
 # all variables (except OD) are named consistently
@@ -123,46 +87,52 @@ CC <- CC %>%
   left_join(od, by = join_by(experiment_replicate, day, time, ID))
 
 # blank? Minus value of M5 (control) from others within a sampling period  
-CC <- CC %>%
-  group_by(sample) %>%                   
-  mutate(control_OD = OD[ID == "M5"],          
-         OD_blanked = OD - control_OD) %>%        
-  ungroup()                         
+#CC <- CC %>%
+#  group_by(sample) %>%                   
+#  mutate(control_OD = OD[ID == "M5"],          
+#         OD_blanked = OD - control_OD) %>%        
+#  ungroup()                         
 
 ```
-
 
 Calculate dilution rate (this seems to be what Kaleigh used for y axis)
 
 ```{r}
 CC <- CC %>%
   
-  # volume coming in every hour (in ml)
-  mutate(outflow_per_hour = outflow_mean/24) %>%
-  
   # as a fraction of the volume of the vial (21ml) to get rate of dilution 
-  mutate(dilution_rate = outflow_per_hour/21)
+  mutate(dilution_rate = outflow_per_hour_mean/21)
 ```
+
 
 Quick plots of CFUs by dilution rate
 
 ```{r, fig.height=4, fig.width=7}
 
-# removing the control (all at 0) and M1 reactor - pump failed on first day
+# removing some reactors
 CC_plot <- CC %>%
-  filter(!(ID %in% c("M1", "M5")))
+  # for dd6, remove control (M5) and M1, whose pump stopped during day 1
+  filter(!(ID %in% c("M1", "M5") & experiment_replicate == "dd6")) %>%
+  # for dd7, remove control (M2)
+  filter(!(ID %in% c("M2") & experiment_replicate == "dd7")) %>%
+  # and remove M3 for day 3 that turned to batch at end of day 2
+  filter(!(ID %in% c("M3") & experiment_replicate == "dd7" & day %in% c(3, 4))) %>%
+  
+  # choose which day to plot 
+  filter(day %in% c(2)) %>%
+  # choose an expeirment 
+  filter(experiment_replicate %in% c("dd7", "dd6"))
 
 
 ggplot(CC_plot, aes(x = cfu_ul, y = dilution_rate, color = sample)) +
   geom_point() + 
-  #geom_smooth(method = "loess", se = FALSE, span = 1) + 
   labs(x = "CFU/μL", y = "Dilution rate (ml/hour/ml)", color = "Sample") +
   theme_minimal()
 
 ```
 
 ```{r}
-ggplot(CC_plot, aes(x = cfu_ul, y = dilution_rate, color = sample)) +
+ggplot(CC, aes(x = cfu_ul, y = dilution_rate, color = sample)) +
   geom_point() + 
   #geom_smooth(method = "loess", se = FALSE, span = 10) + 
   labs(x = "CFU/μL", y = "Dilution rate (ml/hour/ml)", color = "Sample") +
@@ -175,13 +145,39 @@ Quick plots of OD by dilution rate
 
 ```{r, fig.height=4, fig.width=7}
 
-ggplot(CC_plot, aes(x = OD_blanked, y = dilution_rate, color = sample)) +
+# removing some reactors
+CC_plot <- CC %>%
+  # for dd6, remove control (M5) and M1, whose pump stopped during day 1
+  filter(!(ID %in% c("M1", "M5") & experiment_replicate == "dd6")) %>%
+  # for dd7, remove control (M2)
+  filter(!(ID %in% c("M2") & experiment_replicate == "dd7")) %>%
+  # and remove M3 from day 3 that turned to batch at end of day 2
+  filter(!(ID %in% c("M3") & experiment_replicate == "dd7" & day %in% c(3, 4))) %>%
+  
+  # day 3 sampling for dd6 was weird? Not just CC - OD as well seamed way off 
+  #filter(!(experiment_replicate %in% c("dd6") & day %in% c(3))) %>%
+  # remove sample "after" pumps for day two for dd6 for now - will average out later
+  #filter(!(sample %in% c("2.a.dd6"))) %>%
+
+  # choose which day to plot 
+  filter(day %in% c(2)) %>%
+  # choose an experiment 
+  filter(experiment_replicate %in% c("dd7", "dd6"))
+
+
+
+ggplot(CC_plot, aes(x = OD, y = dilution_rate, color = sample)) +
   geom_point() + 
   #geom_smooth(method = "loess", se = FALSE, span = 1) + 
   labs(x = "OD", y = "Dilution rate (ml/hour/ml)", color = "Sample") +
   theme_minimal()
 
 ```
+
+
+
+
+
 
 
 Compare my OD data with Kaleigh's OD data 
