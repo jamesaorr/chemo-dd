@@ -4,7 +4,7 @@ output: html_notebook
 author: James Orr
 ---
 
-Organising the data (colony counts, od reads, outflow volumes) from the density-dependence experiments with e. coli in chemostats in the Letten lab. 
+Organising the data (colony counts, od reads, outflow volumes, chibio) from the density-dependence experiments with e. coli in chemostats in the Letten lab. 
 
 dd2, dd3, and dd4 conducted by Kaleigh Davis
 
@@ -17,7 +17,9 @@ Load packages and clear environment
 
 ```{r}
 #### Required packages
-library(tidyverse)        
+library(tidyverse)  
+library(readr)
+library(stringr)
 
 #### Clear  environment 
 rm(list = ls())   
@@ -339,4 +341,96 @@ ggplot(chemo_dd_eqs, aes(x = od_blanked, y = dilution_rate,
   theme_minimal()
 ```
 
+### Organise the chibio data
+
+Start with dd7 as this was one of the only experiments where the system wasn't restarted at some stage (so ODs were uninterupted) and where the full spectrum of dilution rates were tested. 
+
+Load and merge the data
+
+```{r, warning=FALSE}
+
+# Define the file path (for dd7)
+file_path <- "data/chibio/2024-09-24/"
+
+# Get a list of all CSV files in the directory
+csv_files <- list.files(path = file_path, pattern = "*.csv", full.names = TRUE)
+
+# Loop through each file and read it in, naming the dataframe MX
+for (file in csv_files) {
+  # Extract the MX part from the file name (e.g., M0, M1, etc.)
+  file_name <- str_extract(basename(file), "M[0-9]+")
+  
+  # Read the file (show_col_types = FALSE to repress a warning message)
+  data <- read_csv(file, show_col_types = FALSE)
+  
+  # Add a column for the reactor
+  data$ID <- file_name
+  
+  # Assign the data to an object named after the MX part of the file name
+  assign(file_name, data)
+}
+
+# Merge M0 to M7 into one dataframe called chibio
+chibio <- bind_rows(M0, M1, M2, M3, M4, M5, M6, M7)
+
+# Clean up the environment
+rm(list = c("M0", "M1", "M2", "M3",
+            "M4", "M5", "M6", "M7",
+            "data", "csv_files", "file",
+            "file_name", "file_path"))   
+
+```
+
+Clean up the chibio data a little 
+
+```{r}
+outflow_dd7 <- outflow %>%
+  filter(experiment_replicate == "dd7")
+
+chibio <- chibio %>%
+  select(exp_time, od_measured, ID) %>%
+  left_join(outflow_dd7)
+
+chibio$hours <- chibio$exp_time / 3600
+```
+
+Make a quick plot
+
+```{r, fig.height=6, fig.width=10}
+
+
+chibio_plot <- chibio %>%
+  # remove control
+  filter(!(ID %in% c("M2"))) %>%
+  
+  # remove M3 after day 2 (pump failed)
+  filter(!(ID %in% c("M3") & hours > 48)) %>%
+  
+  # remove all points after day 4 (system stopped) 
+  filter(!(hours > 96))
+  
+
+ggplot(chibio_plot, aes(x = hours, y = od_measured, 
+                   group = ID, color = dilution_rate)) +
+  
+  # Faint points for each observation (use alpha to make them faint)
+  geom_point(alpha = 0.1, size = 0.5) +
+  
+  # Smoothed lines for each ID
+  geom_smooth(aes(group = ID), method = "loess", 
+              se = FALSE, size = 1.2, span = 0.15) +
+  
+  # Set a continuous color gradient from pale blue to dark blue
+  scale_color_gradient(low = "darkblue", high = "lightblue") +
+  
+  # Add verticle lines for sampling moments
+  geom_vline(xintercept = c(24, 48, 72, 96),
+             linetype = "dashed", color = "black", size = 0.5) +
+  
+  # Add labels and title
+  labs(x = "Hours", y = "OD", color = "Dilution Rate") +
+  
+  theme_minimal() +
+  theme(legend.position = "right")
+```
 
