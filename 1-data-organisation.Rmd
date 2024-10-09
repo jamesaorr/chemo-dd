@@ -532,18 +532,50 @@ curve_data <- data.frame(dilution_rate = dilution_rate_seq, avg_od_blanked = avg
 ggplot(chemo_dd_eqs_av, aes(y = avg_od_blanked, x = dilution_rate)) +
   geom_point() +
   
-  geom_line(data = predicted_data, aes(y = estimate__, 
-                                       x = dilution_rate)) +  
+  geom_line(data = predicted_data, aes(x = estimate__, 
+                                       y = dilution_rate)) +  
   geom_ribbon(data = predicted_data, aes(ymin = lower__, 
                                          ymax = upper__, 
                                          x = dilution_rate), 
               alpha = 0.2, inherit.aes = FALSE) + 
   
-  geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
-             color = "blue", size = 1) +  # Add custom curve
-  
+  # geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
+  #            color = "blue", size = 1) +  # Add custom curve
+  # 
   labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
        color = "experiment") +
+  theme_minimal()
+```
+
+Try the opposite for the plot
+
+
+```{r}
+
+# Define your parameters
+K <- 0.18   # Choose your value for K
+r <- 1.09   # Choose your value for r
+theta <- 2.32  # Choose your value for theta
+od_seq <- seq(0, 0.2, by = 0.001)
+
+dilution_curve <- r * (1 - (od_seq / K)^ theta)
+curve_data <- data.frame(avg_od_blanked = od_seq, 
+                         dilution_rate = dilution_curve)
+curve_data <- curve_data %>% filter(dilution_rate > 0)
+
+
+# Create the plot with the original data points and model predictions
+ggplot(chemo_dd_eqs_av, aes(x = avg_od_blanked, y = dilution_rate)) +
+  geom_point() +
+  
+  
+  geom_line(data = curve_data, aes(x = avg_od_blanked, y = dilution_rate), 
+              color = "blue", size = 1)
+   
+  
+  labs(x = "OD", y = "Dilution rate (ml/hour/ml)", 
+       color = "experiment") +
+  
   theme_minimal()
 ```
 
