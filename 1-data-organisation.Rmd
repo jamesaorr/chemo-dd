@@ -20,6 +20,7 @@ Load packages and clear environment
 library(tidyverse)  
 library(readr)
 library(stringr)
+library(brms)
 
 #### Clear  environment 
 rm(list = ls())   
@@ -432,5 +433,117 @@ ggplot(chibio_plot, aes(x = hours, y = od_measured,
   
   theme_minimal() +
   theme(legend.position = "right")
+```
+
+### First attempt at fitting a theta logistic model to the data
+
+For this first attempt I'll use OD and dilution rate from `chemo_dd_eqs_av` - 31 observations, no pseudoreplication. `experiment_replicate` may be a grouping factor that I can use for multi-level models (but probably not enough points per experiment). We manipulated dilution rate (we can be confident that there is no/low error around these values) and OD is our respones variable. This means we are kind of flipping the theta logistic model on its head. 
+
+The standard theta-logistic model is: 
+
+$$
+\frac{1}{N} \frac{d N}{d t}=r\left(1-\left(\frac{N}{K}\right)^\theta\right)
+$$
+Where $\frac{1}{N} \frac{d N}{d t} = g $ is the per capita growth (i.e. `dilution_rate`), $N$ is the abundance/density (i.e., `avg_od_blanked`), $r$ is the intrinsic growth rate, $K$ is the carrying capacity, and $/theta$ is the paramater that controls the shape of density dependence. When $\theta$ is 1, it is linear (i.e., logistic growth model), when it is >1 the density dependence is concave (what we expect based on consumer-resource theory), when it is <1 the density dependence is sublinear (a hot topic at the moment). 
+
+We will be using `brms` to estimate the values of $r$, $K$, and most importantly $\theta$, based on the relationship between $g$ and $N$. However, as we manipulated per capita growth, we need to express the theta logistic model in terms of $N$ (our response variable given our expeirmental design). 
+
+Starting from
+
+$$
+g=r\left(1-\left(\frac{N}{K}\right)^\theta\right)
+$$
+we can rearrange to
+
+$$
+N=K\left(1-\frac{g}{r}\right)^{\frac{1}{\theta}}
+$$
+```{r, fig.height=4, fig.width=7}
+
+ggplot(chemo_dd_eqs_av, aes(y = avg_od_blanked, x = dilution_rate, 
+                            color = experiment_replicate)) +
+  geom_point() + 
+  labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
+       color = "experiment") +
+  theme_minimal()
+
+```
+
+
+```{r}
+
+model <- brm(
+  
+  # model formula (paramaters to fit are identified and nl flag is set)
+  bf(
+    avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ (1 / theta),
+    K ~ 1,  
+    r ~ 1,
+    theta ~ 1, 
+    nl = TRUE  
+  ),
+  
+  # data to use
+  data = chemo_dd_eqs_av,
+  
+  # errors are gaussian
+  family = gaussian(), 
+  
+  # priors 
+  prior = c(
+    prior(uniform(0.5, 1.75), nlpar = "r", lb = 0.5, ub = 1.75),  
+    prior(uniform(0.1, 0.25), nlpar = "K", lb = 0.1, ub = 0.25), 
+    prior(uniform(-0.5, 5), nlpar = "theta", lb = -0.5, ub = 5)  
+  ),
+  
+  # hyperparameters 
+  iter = 6000, warmup = 2000, chains = 4,
+  control = list(adapt_delta = 0.98,
+                 max_treedepth = 15)
+)
+
+
+```
+```{r}
+summary(model)
+plot(model)
+conditional_effects(model)
+```
+
+```{r}
+# Generate conditional effects from the model
+conditional_effects_data <- conditional_effects(model)
+
+# Extract the data for the relevant variable, assuming 'dilution_rate' is the predictor
+predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
+
+
+# Define your parameters
+K <- 0.16   # Choose your value for K
+r <- 1.05   # Choose your value for r
+theta <- 5  # Choose your value for theta
+dilution_rate_seq <- seq(0, 1.1, by = 0.01)
+avg_od_blanked_curve <- K * (1 - (dilution_rate_seq / r)) ^ (1 / theta)
+curve_data <- data.frame(dilution_rate = dilution_rate_seq, avg_od_blanked = avg_od_blanked_curve)
+
+
+
+# Create the plot with the original data points and model predictions
+ggplot(chemo_dd_eqs_av, aes(y = avg_od_blanked, x = dilution_rate)) +
+  geom_point() +
+  
+  geom_line(data = predicted_data, aes(y = estimate__, 
+                                       x = dilution_rate)) +  
+  geom_ribbon(data = predicted_data, aes(ymin = lower__, 
+                                         ymax = upper__, 
+                                         x = dilution_rate), 
+              alpha = 0.2, inherit.aes = FALSE) + 
+  
+  geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
+             color = "blue", size = 1) +  # Add custom curve
+  
+  labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
+       color = "experiment") +
+  theme_minimal()
 ```
 
