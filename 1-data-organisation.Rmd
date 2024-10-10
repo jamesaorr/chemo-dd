@@ -458,17 +458,8 @@ we can rearrange to
 $$
 N=K\left(1-\frac{g}{r}\right)^{\frac{1}{\theta}}
 $$
-```{r, fig.height=4, fig.width=7}
 
-ggplot(chemo_dd_eqs_av, aes(y = avg_od_blanked, x = dilution_rate, 
-                            color = experiment_replicate)) +
-  geom_point() + 
-  labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
-       color = "experiment") +
-  theme_minimal()
-
-```
-
+Fitting this model with brms
 
 ```{r}
 
@@ -476,7 +467,7 @@ model <- brm(
   
   # model formula (paramaters to fit are identified and nl flag is set)
   bf(
-    avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ (1 / theta),
+    od_blanked ~ K * (1 - (dilution_rate / r)) ^ (1 / theta),
     K ~ 1,  
     r ~ 1,
     theta ~ 1, 
@@ -484,22 +475,27 @@ model <- brm(
   ),
   
   # data to use
-  data = chemo_dd_eqs_av,
+  data = chemo_dd_eqs,
   
   # errors are gaussian
   family = gaussian(), 
   
   # priors 
   prior = c(
-    prior(uniform(0.5, 1.75), nlpar = "r", lb = 0.5, ub = 1.75),  
-    prior(uniform(0.1, 0.25), nlpar = "K", lb = 0.1, ub = 0.25), 
-    prior(uniform(-0.5, 5), nlpar = "theta", lb = -0.5, ub = 5)  
+    prior(uniform(0.9, 1.1), nlpar = "r", lb = 0.9, ub = 1.1),  
+    #prior(normal(log(1.04), 0.01), nlpar = "logr"),
+    prior(uniform(0.15, 0.20), nlpar = "K", lb = 0.15, ub = 0.20), 
+    prior(uniform(1, 5), nlpar = "theta", lb = 1, ub = 5)  
   ),
   
   # hyperparameters 
-  iter = 6000, warmup = 2000, chains = 4,
+  iter = 6000, warmup = 3000, chains = 4,
   control = list(adapt_delta = 0.98,
-                 max_treedepth = 15)
+                 max_treedepth = 10),
+  
+  # inital values to help with start up
+  #init = function() list(K = 0.2, theta = 1)
+
 )
 
 
@@ -509,6 +505,15 @@ summary(model)
 plot(model)
 conditional_effects(model)
 ```
+```{r}
+pairs(model)
+pp_check(model)
+```
+
+
+
+
+
 
 ```{r}
 # Generate conditional effects from the model
@@ -519,29 +524,28 @@ predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
 
 
 # Define your parameters
-K <- 0.16   # Choose your value for K
-r <- 1.05   # Choose your value for r
-theta <- 5  # Choose your value for theta
-dilution_rate_seq <- seq(0, 1.1, by = 0.01)
+K <- 0.18   # Choose your value for K
+r <- 1.049   # Choose your value for r
+theta <- 2.5  # Choose your value for theta
+dilution_rate_seq <- seq(0, 1.1, by = 0.001)
 avg_od_blanked_curve <- K * (1 - (dilution_rate_seq / r)) ^ (1 / theta)
 curve_data <- data.frame(dilution_rate = dilution_rate_seq, avg_od_blanked = avg_od_blanked_curve)
-
 
 
 # Create the plot with the original data points and model predictions
 ggplot(chemo_dd_eqs_av, aes(y = avg_od_blanked, x = dilution_rate)) +
   geom_point() +
   
-  geom_line(data = predicted_data, aes(x = estimate__, 
-                                       y = dilution_rate)) +  
+  geom_line(data = predicted_data, aes(y = estimate__, 
+                                       x = dilution_rate)) +  
   geom_ribbon(data = predicted_data, aes(ymin = lower__, 
                                          ymax = upper__, 
                                          x = dilution_rate), 
               alpha = 0.2, inherit.aes = FALSE) + 
   
-  # geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
-  #            color = "blue", size = 1) +  # Add custom curve
-  # 
+  geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
+              color = "blue", size = 1) +  # Add custom curve
+   
   labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
        color = "experiment") +
   theme_minimal()
@@ -554,8 +558,8 @@ Try the opposite for the plot
 
 # Define your parameters
 K <- 0.18   # Choose your value for K
-r <- 1.09   # Choose your value for r
-theta <- 2.32  # Choose your value for theta
+r <- 1.05   # Choose your value for r
+theta <- 2.5  # Choose your value for theta
 od_seq <- seq(0, 0.2, by = 0.001)
 
 dilution_curve <- r * (1 - (od_seq / K)^ theta)
@@ -578,4 +582,236 @@ ggplot(chemo_dd_eqs_av, aes(x = avg_od_blanked, y = dilution_rate)) +
   
   theme_minimal()
 ```
+
+Thoughts: 
+
+- theta-logistic model is not flexible enough to give a perfect fit to the data. It fits pretty well, but if I choose values for r and K that I expect, the theta parameter can't be fine-tuned to get a "perfect" fit. 
+
+- We're using the theta-logistic model as it is a field standard - gives us a single value quantifying the non-linearity of density dependence. So although it isn't a perfect fit, that's okay I think. Clearly theta of around 2.4 gives the best fit. 
+
+- The model divergence and fitting errors are associated with r - it finds it really hard to fit models below 1.05 for some reason 
+
+- When I fit the proper theta-logistic model it has much better convergence beheavour and no divergence warnings. It's estiamte for theta however is 1.78 - although the fit really doesn't look good at K (intercept on the density axis).
+
+- It's funny how the r has issues with the reverse theta logistic model and the K has issues with the proper theta logistic model.. Could be due to the fact that these are on the denominator in both cases, may be more challenging to get good fits - they do both have weird skewedness - and if they aren't getting fitted properly - they are being overestimate - then the theta doesn't go as high as you'd expect.. I wonder if there is a way of re parameterizing the models so that the r or the K isn't a denominator? 
+
+- From chatgpt: "The posterior distribution might be problematic for $r$ because of how it interacts with the dilution rate in a nonlinear fashion within the $(1 - \frac{dilution rate}{r})$ term. Small changes in $r$ may lead to large changes in the predicted value, which can cause the posterior distribution to become skewed or multi-modal. To fix this, you can try reparameterizing 
+$r$ in a way that stabilizes its estimation. This often involves transforming $r$ to another variable that behaves more smoothly during sampling, such as using the logarithm or some other transformed parameter.
+
+I've tried: 
+
+* using exp(log_r) - didn't change anything
+* using exp(r)
+* using dilution * inv_r
+
+
+
+**Fitting theta-logistic directly to flipped data just to check if the fitting issues arise again**
+
+```{r}
+
+model2 <- brm(
+  
+  # model formula (paramaters to fit are identified and nl flag is set)
+  bf(
+    dilution_rate ~ r * (1 - (avg_od_blanked / K)^ theta),
+    K ~ 1,  
+    r ~ 1,
+    theta ~ 1, 
+    nl = TRUE  
+  ),
+  
+  # data to use
+  data = chemo_dd_eqs_av,
+  
+  # errors are gaussian
+  family = gaussian(), 
+  
+  # priors 
+  prior = c(
+    prior(uniform(0, 2), nlpar = "r", lb = 0, ub = 2),  
+    #prior(normal(log(1.04), 0.01), nlpar = "logr"),
+    prior(uniform(0.1, 0.25), nlpar = "K", lb = 0.1, ub = 0.25), 
+    prior(uniform(-0.5, 5), nlpar = "theta", lb = -0.5, ub = 5)  
+  ),
+  
+  # hyperparameters 
+  iter = 6000, warmup = 3000, chains = 4,
+  control = list(adapt_delta = 0.95,
+                 max_treedepth = 10),
+  
+  # inital values to help with start up
+  #init = function() list(K = 0.2, theta = 1)
+
+)
+
+
+```
+
+```{r}
+summary(model2)
+plot(model2)
+conditional_effects(model2)
+```
+```{r}
+# Generate conditional effects from the model
+conditional_effects_data <- conditional_effects(model2)
+
+# Extract the data for the relevant variable, 
+predicted_data <- as.data.frame(conditional_effects_data$avg_od_blanked)
+
+
+# Create the plot with the original data points and model predictions
+ggplot(chemo_dd_eqs_av, aes(x = avg_od_blanked, y = dilution_rate)) +
+  geom_point() +
+  
+  geom_line(data = predicted_data, aes(y = estimate__, 
+                                       x = avg_od_blanked)) +  
+  geom_ribbon(data = predicted_data, aes(ymin = lower__, 
+                                         ymax = upper__, 
+                                         x = avg_od_blanked), 
+              alpha = 0.2, inherit.aes = FALSE) + 
+  
+   
+  labs(x = "OD", y = "Dilution rate (ml/hour/ml)", 
+       color = "experiment") +
+  theme_minimal()
+```
+
+**To try and find a better parameterization for r**
+
+
+```{r}
+
+model3 <- brm(
+  
+  # model formula (paramaters to fit are identified and nl flag is set)
+  bf(
+    avg_od_blanked ~ K * (1 - ((dilution_rate + e) / r)) ^ (1 / theta),
+    K ~ 1,  
+    r ~ 1,
+    theta ~ 1,
+    e ~ 1,
+    nl = TRUE  
+  ),
+  
+  # data to use
+  data = chemo_dd_eqs_av,
+  
+  # errors are gaussian
+  family = gaussian(), 
+  
+  # priors 
+  prior = c(
+    prior(uniform(0.8, 1.2), nlpar = "r", lb = 0.8, ub = 1.2),  
+    prior(uniform(0.1, 0.25), nlpar = "K", lb = 0.1, ub = 0.25), 
+    prior(uniform(-0.5, 5), nlpar = "theta", lb = -0.5, ub = 5),  
+    prior(normal(0, 0.1), nlpar = "e")  
+
+  ),
+  
+  # hyperparameters 
+  iter = 4000, warmup = 2000, chains = 4,
+  control = list(adapt_delta = 0.95,
+                 max_treedepth = 10),
+  
+  # inital values to help with start up
+  #init = function() list(K = 0.18, theta = 2)
+
+)
+
+
+```
+```{r}
+summary(model3)
+plot(model3)
+conditional_effects(model3)
+```
+
+
+
+
+
+```{r}
+pairs(model3)
+pp_check(model3, type = "scatter_avg")
+```
+
+
+```{r}
+# Generate conditional effects from the model
+conditional_effects_data <- conditional_effects(model3)
+
+# Extract the data for the relevant variable, assuming 'dilution_rate' is the predictor
+predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
+
+
+# Define your parameters
+K <- 0.175   # Choose your value for K
+r <- 1.03   # Choose your value for r
+theta <- 2.5  # Choose your value for theta
+dilution_rate_seq <- seq(0, 1.1, by = 0.001)
+avg_od_blanked_curve <- K * (1 - (dilution_rate_seq / r)) ^ (1 / theta)
+curve_data <- data.frame(dilution_rate = dilution_rate_seq, avg_od_blanked = avg_od_blanked_curve)
+
+
+# Create the plot with the original data points and model predictions
+ggplot(chemo_dd_eqs_av, aes(y = avg_od_blanked, x = dilution_rate)) +
+  geom_point() +
+  
+  geom_line(data = predicted_data, aes(y = estimate__, 
+                                       x = dilution_rate)) +  
+  geom_ribbon(data = predicted_data, aes(ymin = lower__, 
+                                         ymax = upper__, 
+                                         x = dilution_rate), 
+              alpha = 0.2, inherit.aes = FALSE) + 
+  
+  geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
+              color = "blue", size = 1) +  # Add custom curve
+   
+  labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
+       color = "experiment") +
+  theme_minimal()
+```
+
+
+
+Key issue is that r can't be lower than the highest value in the dilution_rate column (otherwise the model fails - thinking algebraically about it, it is quite obvoius.... What to do... 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Try simple quadratic
+
+```{r}
+# Fit a quadratic model using default priors
+model_quadratic <- brm(
+  formula = avg_od_blanked ~ dilution_rate + I(dilution_rate^2),  # Quadratic model
+  data = chemo_dd_eqs_av,  # Your dataset
+  family = gaussian(),  # Assuming a Gaussian distribution for the response variable
+  prior = default_prior(),  # Use default priors for all parameters
+  iter = 6000,  # Number of iterations
+  warmup = 3000,  # Number of warmup iterations
+  chains = 4,  # Number of chains
+  control = list(adapt_delta = 0.95)  # Control for adaptation
+)
+
+
+# Summary of the fitted model
+summary(model_quadratic)
+```
+
+
+
+
 
