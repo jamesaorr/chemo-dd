@@ -1,0 +1,113 @@
+---
+title: "chemo-dd"
+subtitle: "Plots"
+output: 
+  html_notebook:
+    toc: true
+author: James Orr
+---
+
+This notebook uses the processed data from `1-organation.Rmd` for plotting
+
+
+### Set up environment 
+
+Load packages and clear environment 
+
+```{r}
+#### Required packages
+library(tidyverse)  
+
+#### Clear  environment 
+rm(list = ls())   
+```
+
+Load data
+
+```{r}
+all_samples <- read.csv("data/processed/all_samples.csv")
+equilibrium_samples <- read.csv("data/processed/equilibrium_samples.csv")
+chibio <- read.csv("data/processed/chibio.csv")
+```
+
+### Densities per day for each experiment
+
+```{r}
+ggplot(all_samples, aes(y = cfu_ul, x = dilution_rate, color = as.factor(day))) +
+  geom_point() + 
+  labs(y = "CFU/μL", x = "Dilution rate (ml/hour/ml)", color = "day") +
+  theme_light() +
+  facet_wrap(~ experiment_replicate, scales = "free_y")
+```
+
+```{r}
+ggplot(all_samples, aes(y = od_blanked, x = dilution_rate, color = as.factor(day))) +
+  geom_point() + 
+  labs(y = "OD", x = "Dilution rate (ml/hour/ml)", color = "day") +
+  theme_light() +
+  facet_wrap(~ experiment_replicate, scales = "free_y")
+```
+
+### Equilibrium densities as a function of dilution rate
+
+Ad hoc selection of sampling days based on equilibrium estimates from OD tracking and from sampling 
+
+```{r, fig.height=4, fig.width=7}
+ggplot(equilibrium_samples, aes(y = avg_cfu_ul, x = dilution_rate, 
+                            color = experiment_replicate)) +
+  geom_point() + 
+  labs(y = "CFU/μL", x = "Dilution rate (ml/hour/ml)", 
+       color = "experiment") +
+  theme_minimal()
+```
+
+```{r, fig.height=4, fig.width=7}
+ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate, 
+                            color = experiment_replicate)) +
+  geom_point() + 
+  labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
+       color = "experiment") +
+  theme_minimal()
+```
+
+### Chibio OD timeseries
+
+
+```{r, fig.height=6, fig.width=10}
+
+chibio_plot <- chibio %>%
+  # remove control
+  filter(!(ID %in% c("M2"))) %>%
+  
+  # remove M3 after day 2 (pump failed)
+  filter(!(ID %in% c("M3") & hours > 48)) %>%
+  
+  # remove all points after day 4 (system stopped) 
+  filter(!(hours > 96))
+  
+
+ggplot(chibio_plot, aes(x = hours, y = od_measured, 
+                   group = ID, color = dilution_rate)) +
+  
+  # Faint points for each observation (use alpha to make them faint)
+  geom_point(alpha = 0.1, size = 0.5) +
+  
+  # Smoothed lines for each ID
+  geom_smooth(aes(group = ID), method = "loess", 
+              se = FALSE, size = 1.2, span = 0.15) +
+  
+  # Set a continuous color gradient from pale blue to dark blue
+  scale_color_gradient(low = "darkblue", high = "lightblue") +
+  
+  # Add verticle lines for sampling moments
+  geom_vline(xintercept = c(24, 48, 72, 96),
+             linetype = "dashed", color = "black", size = 0.5) +
+  
+  # Add labels and title
+  labs(x = "Hours", y = "OD", color = "Dilution Rate") +
+  
+  theme_minimal() +
+  theme(legend.position = "right")
+```
+
+
