@@ -10,7 +10,6 @@ author: James Orr
 
 This notebook uses the processed data from `1-organation.Rmd` for modelling
 
-
 ### Set up environment 
 
 Load packages and clear environment 
@@ -33,9 +32,9 @@ chibio <- read.csv("data/processed/chibio.csv")
 ```
 
 
-### Theta-logistic model 
+### Flipped theta-logistic model 
 
-For this first attempt I'll use OD and dilution rate from `equilibrium_samples` - 31 observations, no pseudoreplication. `experiment_replicate` may be a grouping factor that I can use for multi-level models (but probably not enough points per experiment). We manipulated dilution rate (we can be confident that there is no/low error around these values) and OD is our response variable. This means we are kind of flipping the theta-logistic model on its head. 
+For this first attempt I'll use OD and dilution rate from `equilibrium_samples` - 31 observations, no pseudoreplication. `experiment_replicate` may be a grouping factor that I can use for multi-level models. We manipulated dilution rate (we can be confident that there is no/low error around these values) and OD is our response variable. This means we are kind of flipping the theta-logistic model on its head. 
 
 The standard theta-logistic model is: 
 
@@ -82,7 +81,7 @@ model <- brm(
   
   # priors 
   prior = c(
-    prior(uniform(0.9, 1.1), nlpar = "r", lb = 0.9, ub = 1.1),  
+    prior(uniform(1.05, 1.2), nlpar = "r", lb = 1.05, ub = 1.2),  
     prior(uniform(0.10, 0.25), nlpar = "K", lb = 0.1, ub = 0.25), 
     prior(uniform(-0.5, 5), nlpar = "theta", lb = -0.5, ub = 5)  
   ),
@@ -154,8 +153,8 @@ Flip the axes (for density-dependence perspective) and fit a theta-logistic mode
 
 # Theta-logistic model with parameters from above
 K <- 0.18   
-r <- 1.07   
-theta <- 2.41  
+r <- 1.08   
+theta <- 2.36  
 od_seq <- seq(0, 0.2, by = 0.001)
 dilution_curve <- r * (1 - (od_seq / K)^ theta)
 curve_data <- data.frame(avg_od_blanked = od_seq, 
@@ -176,7 +175,7 @@ ggplot(equilibrium_samples, aes(x = avg_od_blanked, y = dilution_rate)) +
   theme_minimal()
 ```
 
-#### problem due to $\frac{g}{r}$
+#### problem when $\frac{g}{r} > 1$
 
 What is causing this affect?
 
@@ -188,10 +187,125 @@ In theory it shouldn't be possible for us to get r values that are smaller than 
 
 It seems that "reparameterization" is needed - one option is to transform r. I've tried using exp(log_r) and exp(r) and inv_r - but none of these made a difference. I think the issues are with the raising to the power of a fraction? 
 
+#### finding a better parameterization for r
 
-#### fitting theta-logistic model with flipped axes
+I've tried using exp(log_r), exp(r), and inv_v - none of these seemed to make a difference
 
-I should probably disregard this as regression is assymetric, in the sense that it really matters what is the response and what is the predictor in terms of how variance is expained. It is assuemd that the predicts are known with certainty but that there is uncertainty (residules) around the response variable. Our experiment has OD as the response variable and dilution_rate as the predictor variable - so we have to model them that way around. No point looking at the proper theta-logistic model. 
+Another thought I had was to re-parameterize theta so that it wasn't 1/theta, but that it is just inv_theta - priors from 1/-0.5 to 1/5 - see what happens, may also need to be log transformed? It seemed to have a minor effect, look into this more.. 
+
+I had the idea of adding an "error" term to dilution rate - this would allow r to be smaller than g (if e was negative enough) - really not sure if this makes any sense. 
+
+$$
+N=K\left(1-\frac{g + e}{r}\right)^{\frac{1}{\theta}}
+$$
+
+I also tried a logarithmic transformation: 
+
+$$
+\ln (N)=\ln (K)+\frac{1}{\theta} \ln \left(1-\frac{g}{r}\right)
+$$
+
+This has the same issue as before (undefined when r is smaller than g). However, I guess because of the transformation the fit of this model is a lot better, there are basically no divergences, but r is still bounded - with a reasonably tight prior for r I get slightly better results, but interpreting all of this seems odd. Does theta still mean the density dependence that we thought? Probably not.. 
+
+
+```{r, include = F}
+
+model3 <- brm(
+  
+  # model formula (parameters to fit are identified and nl flag is set)
+  bf(
+    log(avg_od_blanked) ~ log(K) + (1 / theta) * log( 1 - (dilution_rate / r)),
+    #avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ (1 / theta),
+    #avg_od_blanked ~ K * (1 - (((dilution_rate + e)) / r)) ^ (1 / theta),
+    #avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ invtheta,
+    #avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ exp(loginvtheta),
+    K ~ 1,  
+    r ~ 1,
+    theta ~ 1,
+    #invtheta ~ 1,
+    #e ~ 1,
+    #loginvtheta ~ 1,
+    nl = TRUE  
+  ),
+  
+  # data to use
+  data = equilibrium_samples,
+  
+  # errors are gaussian
+  family = gaussian(), 
+  
+  # priors 
+  prior = c(
+    prior(uniform(0.9, 1.2), nlpar = "r", lb = 0.9, ub = 1.2),  
+    prior(uniform(0.1, 0.25), nlpar = "K", lb = 0.1, ub = 0.25), 
+    prior(uniform(0.5, 5), nlpar = "theta", lb = 0.5, ub = 5)
+    #prior(uniform(log(0.2), log(10)), nlpar = "loginvtheta", lb = log(0.2), ub = log(10))
+    #prior(uniform(-1, 1), nlpar = "e", lb = -1, ub = 1)  
+  ),
+  
+  # hyperparameters 
+  iter = 4000, warmup = 2000, chains = 4,
+  control = list(adapt_delta = 0.97,
+                 max_treedepth = 10),
+  
+  # inital values to help with start up
+  #init = function() list(K = 0.18, theta = 2)
+)
+```
+
+
+```{r}
+summary(model3)
+plot(model3)
+conditional_effects(model3)
+```
+
+```{r}
+pairs(model3)
+pp_check(model3)
+```
+
+
+```{r}
+conditional_effects_data <- conditional_effects(model3)
+
+predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
+
+K <- 0.175   
+r <- 1.03   
+theta <- 2.5  
+dilution_rate_seq <- seq(0, 1.1, by = 0.001)
+avg_od_blanked_curve <- K * (1 - (dilution_rate_seq / r)) ^ (1 / theta)
+curve_data <- data.frame(dilution_rate = dilution_rate_seq, avg_od_blanked = avg_od_blanked_curve)
+
+
+ggplot(equilibrium_samples, aes(y = log(avg_od_blanked), x = dilution_rate)) +
+  geom_point() +
+  
+  geom_line(data = predicted_data, aes(y = estimate__, 
+                                       x = dilution_rate)) +  
+  geom_ribbon(data = predicted_data, aes(ymin = lower__, 
+                                         ymax = upper__, 
+                                         x = dilution_rate), 
+              alpha = 0.2, inherit.aes = FALSE) + 
+  
+  #geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
+  #            color = "blue", size = 1) + 
+   
+  labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
+       color = "experiment") +
+  theme_minimal()
+```
+
+
+
+
+
+
+
+### Theta-logistic on flipped axes
+
+I should probably disregard this as regression is asymmetric, in the sense that it really matters what is the response and what is the predictor in terms of how variance is explained. It is assumed that the predicts are known with certainty but that there is uncertainty (residuals) around the response variable. Our experiment has OD as the response variable and dilution_rate as the predictor variable - so we have to model them that way around. No point looking at the proper theta-logistic model. 
 
 ```{r, include = F}
 
@@ -284,101 +398,9 @@ max OD is: 0.18980, posteriors for K are able to cross this - so that doesn't se
 Don't know how much we should trust this as here we are assuming there is no error in OD and that there is error in dilution_rate - this is the opposite to what we think. So I don't think fitting these models this way really makes sense. 
 
 
-#### finding a better parameterization for r
-
-I've tried using exp(log_r), exp(r), and inv_v - none of these seemed to make a difference
-
-Another thought I had was to reparameterize theta so that it wasn't 1/theta, but that it is just inv_theta - priors from 1/-0.5 to 1/5 - see what happens, may also need to be log transformed? It seemed to have a minor effect, look into this more.. Discuss with Andrew. 
-
-I had the idea of adding an "error" term to dilution rate - this would allow r to be smaller than g (if e was negative enough) - really not sure if this makes any sense. 
-
-```{r, include = F}
-
-model3 <- brm(
-  
-  # model formula (parameters to fit are identified and nl flag is set)
-  bf(
-    #avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ (1 / theta),
-    avg_od_blanked ~ K * (1 - (((dilution_rate + e)) / r)) ^ (1 / theta),
-    #avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ invtheta,
-    #avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ exp(loginvtheta),
-    K ~ 1,  
-    r ~ 1,
-    theta ~ 1,
-    #invtheta ~ 1,
-    e ~ 1,
-    #loginvtheta ~ 1,
-    nl = TRUE  
-  ),
-  
-  # data to use
-  data = equilibrium_samples,
-  
-  # errors are gaussian
-  family = gaussian(), 
-  
-  # priors 
-  prior = c(
-    prior(uniform(0.5, 1.5), nlpar = "r", lb = 0.5, ub = 1.5),  
-    prior(uniform(0.1, 0.25), nlpar = "K", lb = 0.1, ub = 0.25), 
-    prior(uniform(-0.5, 5), nlpar = "theta", lb = -0.5, ub = 5),
-    #prior(uniform(log(0.2), log(10)), nlpar = "loginvtheta", lb = log(0.2), ub = log(10))
-    prior(normal(0, 0.2), nlpar = "e")  
-  ),
-  
-  # hyperparameters 
-  iter = 4000, warmup = 2000, chains = 4,
-  control = list(adapt_delta = 0.95,
-                 max_treedepth = 10),
-  
-  # inital values to help with start up
-  #init = function() list(K = 0.18, theta = 2)
-)
-```
 
 
-```{r}
-summary(model3)
-plot(model3)
-conditional_effects(model3)
-```
 
-```{r}
-pairs(model3)
-pp_check(model3)
-```
-
-
-```{r}
-conditional_effects_data <- conditional_effects(model3)
-
-predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
-
-K <- 0.175   
-r <- 1.03   
-theta <- 2.5  
-dilution_rate_seq <- seq(0, 1.1, by = 0.001)
-avg_od_blanked_curve <- K * (1 - (dilution_rate_seq / r)) ^ (1 / theta)
-curve_data <- data.frame(dilution_rate = dilution_rate_seq, avg_od_blanked = avg_od_blanked_curve)
-
-
-ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
-  geom_point() +
-  
-  geom_line(data = predicted_data, aes(y = estimate__, 
-                                       x = dilution_rate)) +  
-  geom_ribbon(data = predicted_data, aes(ymin = lower__, 
-                                         ymax = upper__, 
-                                         x = dilution_rate), 
-              alpha = 0.2, inherit.aes = FALSE) + 
-  
-  #geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
-  #            color = "blue", size = 1) + 
-   
-  labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
-       color = "experiment") +
-  theme_minimal()
-```
 
 
 ### Polynomial models 
