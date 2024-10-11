@@ -301,11 +301,13 @@ model3 <- brm(
     #avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ (1 / theta),
     avg_od_blanked ~ K * (1 - (((dilution_rate + e)) / r)) ^ (1 / theta),
     #avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ invtheta,
+    #avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ exp(loginvtheta),
     K ~ 1,  
     r ~ 1,
     theta ~ 1,
     #invtheta ~ 1,
     e ~ 1,
+    #loginvtheta ~ 1,
     nl = TRUE  
   ),
   
@@ -320,8 +322,8 @@ model3 <- brm(
     prior(uniform(0.5, 1.5), nlpar = "r", lb = 0.5, ub = 1.5),  
     prior(uniform(0.1, 0.25), nlpar = "K", lb = 0.1, ub = 0.25), 
     prior(uniform(-0.5, 5), nlpar = "theta", lb = -0.5, ub = 5),
-    #prior(uniform(0.2, 10), nlpar = "invtheta", lb = 0.2, ub = 10)
-    prior(normal(0, 0.1), nlpar = "e")  
+    #prior(uniform(log(0.2), log(10)), nlpar = "loginvtheta", lb = log(0.2), ub = log(10))
+    prior(normal(0, 0.2), nlpar = "e")  
   ),
   
   # hyperparameters 
@@ -379,7 +381,7 @@ ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
 ```
 
 
-### Quadratic model 
+### Polynomial models 
 
 Run a linear model, quadratic model, and quadratic model with random effects
 
@@ -433,19 +435,36 @@ quad_model_random <- brm(
   control = list(adapt_delta = 0.95,
                  max_treedepth = 10)
   )
+
+########## cubic model ##########
+cubic_model <- brm(
+  formula = avg_od_blanked ~ dilution_rate + I(dilution_rate^2) + I(dilution_rate^3) , 
+  data = equilibrium_samples,
+  family = gaussian(), 
+  priors <- c(
+    set_prior("normal(0, 10)", class = "Intercept"),           
+    set_prior("normal(0, 5)", class = "b", coef = "dilution_rate"),   
+    set_prior("normal(0, 5)", class = "b", coef = "Idilution_rateE2"),
+    set_prior("normal(0, 5)", class = "b", coef = "Idilution_rateE3")
+    ), 
+  iter = 4000, warmup = 2000, chains = 4,
+  control = list(adapt_delta = 0.95,
+                 max_treedepth = 10)
+  )
 ```
 
 ```{r}
 pp_check(linear_model, ndraws = 20)
 pp_check(quad_model, ndraws = 20)
 pp_check(quad_model_random, ndraws = 20)
+pp_check(cubic_model, ndraws = 20) 
 ```
 
 
 ```{r}
-loo(linear_model, quad_model, quad_model_random)
+loo(linear_model, quad_model, quad_model_random, cubic_model)
 ```
-Seems like quadratic without random effects is best. 
+Seems like quadratic without random effects is best. Cubic has very similar fit, so no benefit of including it. 
 
 
 ```{r}
