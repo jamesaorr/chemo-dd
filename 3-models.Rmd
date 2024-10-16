@@ -448,7 +448,7 @@ power_model <- brm(
   data = equilibrium_samples,
   
   # Errors are gamma with identity link function
-  family = gaussian(), #Gamma(link = "identity"),
+  family = Gamma(link = "identity"),
   
   # Priors
   prior = c(
@@ -496,7 +496,7 @@ ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
   theme_minimal()
 ```
 
-
+Using gamma or Gaussian errors doesn't change the general fit or parameter estimates. Gaussian probably makes sense from a more general theoretical perspective? 
 
 
 
