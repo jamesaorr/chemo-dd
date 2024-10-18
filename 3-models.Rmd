@@ -289,6 +289,50 @@ $$
 
 There is a `brms` function called `mi()` that can be used to do this probably. Need to investigate that!
 
+https://discourse.mc-stan.org/t/measurement-error-in-nonlinear-mixed-effect-models/17610/5
+
+
+```{r, include = F}
+
+model_me <- brm(
+  
+  # model formula (parameters to fit are identified and nl flag is set)
+  bf(avg_od_blanked ~ K * (1 - (X / r)) ^ (1 / theta),
+     X ~ 0 + me(dilution_rate, 0.01),
+     K ~ 1, # + (1|experiment_replicate),
+     r ~ 1, #+ (1|experiment_replicate),
+     theta ~ 1, # + (1|experiment_replicate),
+     nl = TRUE
+  ),
+  
+  # data to use
+  data = equilibrium_samples,
+  
+  # errors are gamma with identity link function (OD can't be negative)
+  family = Gamma(link = "identity"), 
+  
+  # priors 
+  prior = c(
+    prior(uniform(0.5, 1.5), nlpar = "r", lb = 0.5, ub = 1.5),  
+    prior(uniform(0.10, 0.25), nlpar = "K", lb = 0.10, ub = 0.25), 
+    prior(uniform(-0.5, 5), nlpar = "theta", lb = -0.5, ub = 5)  
+  ),
+  
+  # hyperparameters 
+  iter = 3000, warmup = 1500, chains = 4,
+  control = list(adapt_delta = 0.9,
+                 max_treedepth = 10),
+  
+)
+```
+
+```{r}
+summary(model_me)
+plot(model_me)
+conditional_effects(model_me)
+pairs(model_me)
+pp_check(model_me, ndraws = 30)
+```
 
 
 
