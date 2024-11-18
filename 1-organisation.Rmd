@@ -268,6 +268,21 @@ chemo_dd_eqs_av <- chemo_dd_eqs %>%
             avg_cfu_ul = mean(cfu_ul, na.rm = TRUE))
 
 
+# Select final day that is relevant
+# Low dilution, day 4
+# Mid dilutions, day 2
+# High dilutions, day 4
+chemo_dd_eqs_fin <- chemo_dd %>%
+  filter(
+    (dilution_rate < 0.1 & day == 4) |
+    (dilution_rate > 0.7 & day == 4) |
+    (dilution_rate < 0.7 & dilution_rate > 0.1 & day == 2)
+  )
+
+# Select day 4 for all (assumes that evolution not important)
+chemo_dd_eqs_day4 <- chemo_dd %>%
+  filter(day == 4)
+
 ```
 
 ### Organise the chibio data
@@ -329,7 +344,9 @@ chibio$hours <- chibio$exp_time / 3600
 ```{r}
 write.csv(chemo_dd, "data/processed/all_samples.csv", row.names = F)
 write.csv(chibio, "data/processed/chibio.csv", row.names = F)
-write.csv(chemo_dd_eqs_av, "data/processed/equilibrium_samples.csv", row.names = F)
+write.csv(chemo_dd_eqs_av, "data/processed/equilibrium_samples_av.csv", row.names = F)
+write.csv(chemo_dd_eqs_fin, "data/processed/equilibrium_samples_fin.csv", row.names = F)
+write.csv(chemo_dd_eqs_day4, "data/processed/equilibrium_samples_day4.csv", row.names = F)
 ```
 
 

@@ -104,7 +104,7 @@ summary(model)
 plot(model)
 conditional_effects(model)
 pairs(model)
-pp_check(model, ndraws = 30)
+pp_check(model, type = "scatter_avg")
 ```
 With a normal distribution we got a huge amount of divergence and strong boundary effects for the r. In the equation, r is never able to be lower than the maximum of `dilution_rate`, the model becomes undefined (being raised to a fractional power). In theory this is makes sense - r is the maximum possible growth rate, so it should be larger than all observed growth rates. However, there is measurement error associated with `dilution_rate` so that could cause an observed value to be above the best fitting r. 
 
@@ -143,8 +143,8 @@ ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
               alpha = 0.2, inherit.aes = FALSE) + 
   
   # user defined model
-  geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
-              color = "blue", size = 1) +
+  #geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
+  #            color = "blue", size = 1) +
    
   theme_minimal()
 ```
@@ -156,8 +156,8 @@ Flip the axes (for density-dependence perspective) and fit a theta-logistic mode
 
 # Theta-logistic model with parameters from above
 K <- 0.20   
-r <- 1.09   
-theta <- 1.85  
+r <- 1.08   
+theta <- 1.84  
 od_seq <- seq(0, 0.2, by = 0.001)
 dilution_curve <- r * (1 - (od_seq / K)^ theta)
 curve_data <- data.frame(avg_od_blanked = od_seq, 
@@ -249,7 +249,7 @@ summary(model_trans)
 plot(model_trans)
 conditional_effects(model_trans)
 pairs(model_trans)
-pp_check(model_trans)
+pp_check(model_trans, type = "scatter_avg")
 ```
 
 ```{r}
@@ -291,14 +291,14 @@ There is a `brms` function called `mi()` that can be used to do this probably. N
 
 https://discourse.mc-stan.org/t/measurement-error-in-nonlinear-mixed-effect-models/17610/5
 
+mi/me don't work directly with non-linear functions. You have to set up latent variables for them. Based on the link above (question answered by package author) if you do `X ~ 1 + me(dilution_rate, sd)` that would also include an intercept, which he thinks you don't need? He suggested doing: `X ~ 0 + me(dilution_rate, sd)`. 
 
 ```{r, include = F}
-
 model_me <- brm(
   
   # model formula (parameters to fit are identified and nl flag is set)
   bf(avg_od_blanked ~ K * (1 - (X / r)) ^ (1 / theta),
-     X ~ 0 + me(dilution_rate, 0.01),
+     X ~ 0 + me(dilution_rate, 0.005),
      K ~ 1, # + (1|experiment_replicate),
      r ~ 1, #+ (1|experiment_replicate),
      theta ~ 1, # + (1|experiment_replicate),
@@ -313,7 +313,7 @@ model_me <- brm(
   
   # priors 
   prior = c(
-    prior(uniform(0.5, 1.5), nlpar = "r", lb = 0.5, ub = 1.5),  
+    prior(uniform(0.9, 1.2), nlpar = "r", lb = 0.9, ub = 1.2),  
     prior(uniform(0.10, 0.25), nlpar = "K", lb = 0.10, ub = 0.25), 
     prior(uniform(-0.5, 5), nlpar = "theta", lb = -0.5, ub = 5)  
   ),
@@ -331,21 +331,36 @@ summary(model_me)
 plot(model_me)
 conditional_effects(model_me)
 pairs(model_me)
-pp_check(model_me, ndraws = 30)
+pp_check(model_me, type = "scatter_avg")
 ```
 
 
+```{r}
+# Extract predictions from the model
+conditional_effects_data <- conditional_effects(model_me)
+predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
 
 
-
-
-
-
-
-
-
-
-
+# Create the plot with the original data points and model predictions
+ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
+  geom_point() +
+  labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
+       color = "experiment") +
+  
+  # brms model predictions
+  geom_line(data = predicted_data, aes(y = estimate__, 
+                                       x = dilution_rate)) +  
+  geom_ribbon(data = predicted_data, aes(ymin = lower__, 
+                                         ymax = upper__, 
+                                         x = dilution_rate), 
+              alpha = 0.2, inherit.aes = FALSE) + 
+  
+  # user defined model
+  #geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
+  #            color = "blue", size = 1) +
+   
+  theme_minimal()
+```
 
 
 
@@ -483,9 +498,9 @@ Where $y$ is equal to OD, $x$ is equal to dilution rate, $a$ is related to where
 power_model <- brm(
   # Model formula (parameters to fit are identified and nl flag is set)
   bf(avg_od_blanked ~ a * (dilution_rate^(1/b)) + c, 
-    a ~ 1,  # Upper asymptote
-    b ~ 1,  # Rate of decay
-    c ~ 1,  # Exponent
+    a ~ 1,  
+    b ~ 1,  
+    c ~ 1,  
     nl = TRUE
   ),
   # Data to use
@@ -515,7 +530,7 @@ summary(power_model)
 plot(power_model)
 conditional_effects(power_model)
 pairs(power_model)
-pp_check(power_model, ndraws = 30)
+pp_check(power_model, type = "scatter_avg")
 ```
 
 ```{r}
@@ -540,7 +555,83 @@ ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
   theme_minimal()
 ```
 
-Using gamma or Gaussian errors doesn't change the general fit or parameter estimates. Gaussian probably makes sense from a more general theoretical perspective? 
+Using gamma or Gaussian errors doesn't change the general fit or parameter estimates. Gamma probably makes sense from a more general theoretical perspective? 
+
+
+
+
+#### And with colony counts
+
+`avg_cfu_ul` is not an integer as we sometimes take the average of multiple days. So can't use poisson - unless I round? 
+
+It is also on a very different scale so need to update priors for c (y axis intercept) and may need to rescale so that the parameters are roughly same scale - to help with fitting 
+
+```{r, include = F}
+
+equilibrium_samples$avg_cfu_rescale <- round(equilibrium_samples$avg_cfu_ul/10000)
+
+power_model_count <- brm(
+  # Model formula (parameters to fit are identified and nl flag is set)
+  bf(avg_cfu_rescale ~ a * (dilution_rate^(1/b)) + c, 
+    a ~ 1,  
+    b ~ 1,  
+    c ~ 1,  
+    nl = TRUE
+  ),
+  # Data to use
+  data = equilibrium_samples,
+  
+  # Errors are poisson
+  family = poisson,
+  #family = Gamma(link = "identity"),
+  
+  # Priors
+  prior = c(
+    prior(uniform(-5, 5), nlpar = "a", lb = -5, ub = 5),
+    prior(uniform(0, 2), nlpar = "b", lb = 0, ub = 2),
+    prior(uniform(0, 150), nlpar = "c", lb = 0, ub = 150)
+  ),
+  
+  # Hyperparameters
+  iter = 3000, 
+  warmup = 1500, 
+  chains = 4,
+  control = list(adapt_delta = 0.9, max_treedepth = 10)
+)
+
+```
+
+```{r}
+summary(power_model_count)
+plot(power_model_count)
+conditional_effects(power_model_count)
+pairs(power_model_count)
+pp_check(power_model_count, type = "scatter_avg")
+```
+
+```{r}
+# Extract predictions from the model
+conditional_effects_data <- conditional_effects(power_model_count)
+predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
+
+# Create the plot with the original data points and model predictions
+ggplot(equilibrium_samples, aes(y = avg_cfu_rescale, x = dilution_rate)) +
+  geom_point() +
+  labs(y = "CFU", x = "Dilution rate (ml/hour/ml)", 
+       color = "experiment") +
+  
+  # brms model predictions
+  geom_line(data = predicted_data, aes(y = estimate__, 
+                                       x = dilution_rate)) +  
+  geom_ribbon(data = predicted_data, aes(ymin = lower__, 
+                                         ymax = upper__, 
+                                         x = dilution_rate), 
+              alpha = 0.2, inherit.aes = FALSE) + 
+   
+  theme_minimal()
+```
+
+
 
 
 

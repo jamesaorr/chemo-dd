@@ -74,7 +74,7 @@ ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate,
 
 
 ```{r, fig.height=6, fig.width=10}
-
+  
 chibio_plot <- chibio %>%
   # remove control
   filter(!(ID %in% c("M2"))) %>%
