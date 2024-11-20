@@ -8,7 +8,7 @@ output:
 author: "James Orr"
 ---
 
-This notebook uses the processed data from `1-organation.Rmd` for modelling. We use various approaches to quantify the curvature of the density-dependence.
+This notebook uses the processed data from `1-organation.Rmd` for preliminary modelling. We explore various approaches to quantify the curvature of the density-dependence.
 
 ### Set up environment 
 

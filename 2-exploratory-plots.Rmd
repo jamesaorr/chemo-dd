@@ -4,10 +4,11 @@ subtitle: "Exploratory plots"
 output: 
   html_notebook:
     toc: true
-author: James Orr
+    toc_depth: 4
+author: "James Orr"
 ---
 
-This notebook uses the processed data from `1-organation.Rmd` for plotting
+This notebook uses the processed data from `1-organation.Rmd` for exploratory plotting.
 
 
 ### Set up environment 

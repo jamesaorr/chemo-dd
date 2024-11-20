@@ -4,7 +4,8 @@ subtitle: "Data organisation"
 output: 
   html_notebook:
     toc: true
-author: James Orr
+    toc_depth: 4
+author: "James Orr"
 ---
 
 # Introduction

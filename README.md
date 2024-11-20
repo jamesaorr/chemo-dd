@@ -6,6 +6,10 @@ KD performed dd2, dd3, and dd4. JO and AW performed dd6 and dd7.
 
 `1-organisation.Rmd` is an R notebook that combines and organises the different types of data from the different experiment replicates and saves the processed data into the data folder.
 
-`2-plots.Rmd` is an R notebook that uses the processed data to create figures. 
+`2-exploratory-plots.Rmd` is an R notebook that uses the processed data to create all sorts of figures exploring the data.
 
-`3-models.Rmd` is an R notebook that uses the processed data for model fitting.
+`3-exploratory-models.Rmd` is an R notebook that uses the processed data to explore a wide range of models.
+
+`4-plots.Rmd` is an R notebook that uses the processed data to produce the plots used in the manuscript and supporting materials. 
+
+`5-models.Rmd` is an R notebook that uses the processed data to run the models described in the manuscript and supporting materials. 
