@@ -1,6 +1,6 @@
 ---
 title: "chemo-dd"
-subtitle: "Plots"
+subtitle: "Exploratory plots"
 output: 
   html_notebook:
     toc: true

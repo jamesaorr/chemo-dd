@@ -1,6 +1,6 @@
 ---
 title: "chemo-dd"
-subtitle: "Models"
+subtitle: "Exploratory models"
 output: 
   html_notebook:
     toc: true
