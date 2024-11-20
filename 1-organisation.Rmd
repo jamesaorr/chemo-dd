@@ -109,6 +109,14 @@ Final cfu dataframe
 ```{r}
 cfu <- cfu %>%
   select(c(experiment_replicate, day, ID, cfu_ul))
+
+# there were isues with the CFU data from day 3 of dd6 - serial dilution probably went wrong for two data points that were an order of magnitude higher than all other data. 
+
+cfu <- cfu %>%
+  mutate(cfu_ul = if_else(experiment_replicate == "dd6" & 
+                          ID %in% c("M2", "M4") & 
+                          day == 3, 
+                          NaN, cfu_ul))
 ```
 
 ## Outflow data
@@ -330,20 +338,20 @@ Choosing cutoffs that separate low, intermediate, and high dilutions requires so
 
 The low to intermediate cutoff is pretty easy - all samples with dilution rate of 0.061 and below include samples from the lowest inflow settings where overshooting happens. The next inflow setting gives dilution rates all above 0.1 and there are no more overshooting dynamics. So choosing 0.1 is fine for that cut-off.  
 
-The intermediate to high cut-off is a bit more difficult to choose. Looking at the OD per day plots for each replicate (especially dd4 and dd7), there is gradual increases in *all* dilutions above 0.7 and the inflow settings corresponding to these dilution rates lead to slow population growths that take several days to reach equilibrium. Below 0.7 and down to 0.25 there are some populations that increased each day and some that decreased each day, and some that stayed the same. These variable results could be related to noise or evolution. 
-Based on these observations (clearly shown in plots in `2-plots.RMD`), I'll go with 0.1 and 0.7 as the two cutoffs. The sensitivity of our results to these choices can be easily tested later on. 
+The intermediate to high cut-off is a bit more difficult to choose. Looking at the OD per day plots for each replicate (especially dd4 and dd7), there is gradual increases in *all* dilutions above 0.75 and the inflow settings corresponding to these dilution rates lead to slow population growths that take several days to reach equilibrium. Below 0.75 and down to 0.25 there are some populations that increased each day and some that decreased each day, and some that stayed the same. These variable results could be related to noise or evolution. 
+
+Based on these observations (clearly shown in plots in `2-plots.RMD`), I'll go with 0.1 and 0.75 as the two cutoffs. The sensitivity of our results to these choices can be easily tested later on. 
 
 ## Different filtering procedures
 
-We will create four "final" datasets to do all analyses on to show that different filtering procedures don't qualitatively impact results. 
+We will create seven "final" datasets to do all analyses on to show that different filtering procedures don't qualitatively impact results. 
 
 1.`chemo_dd_eqs_av`: keep all relevant samples that meet heuristics above and take averages across reactors from the same experiment that were sampled on multiple relevant days (always at equilibrium). 
-
 2.`chemo_dd_eqs_last`: of all relevant samples that meet heuristics above, keep only the sample taken on the last relevant day. 
 
 3.`chemo_dd_eqs_first`: of all relevant samples that meet heuristics above, keep only the sample taken on the first relevant day. 
 
-4.`chemo_dd_eqs_day4`: Broadly ignore the heuristics above and take samples all from the same day when enough time at passed for all samples to have had the potential to reach equlibrium: day four samples only. This assumes that evolution has no impact. Note that there is a lower number of samples in this dataset due to some experiment replicates not lasting until day four. 
+4-7.`chemo_dd_eqs_dayX`: Broadly ignore the heuristics above and take samples all from the same day. Days 1 through 4. Day 4 makes the most sense probably if you want to take data all from the same day - enough time has passed for all samples to have had the potential to reach equlibrium. This assumes that evolution has no impact. Note that there is a lower number of samples in these datasets due to some experiment replicates not lasting until day four or not being sampled every day. 
 
 First create a general dataset of all samples that follow the heuristics above. 
 
@@ -355,16 +363,16 @@ chemo_dd_eqs <- chemo_dd %>%
   filter(!(dilution_rate < 0.1 & day %in% c(1, 2, 3))) %>%
   
   # highest dilutions need time to get to equilibrium: take at least day 3 
-  filter(!(dilution_rate > 0.7 & day %in% c(1, 2))) %>%
+  filter(!(dilution_rate > 0.75 & day %in% c(1, 2))) %>%
   
   # mid dilution rates get to equilibrium fast but could then evolve, take days 1 and 2 only
-  filter(!(dilution_rate < 0.7 & dilution_rate > 0.1 & day %in% c(3, 4, 5, 6))) %>%
+  filter(!(dilution_rate < 0.75 & dilution_rate > 0.1 & day %in% c(3, 4, 5, 6))) %>%
   
   # longer than 4 days is too much, equilibrium already reached but high risk of evolution
   filter(!(day > 4))
 ```
 
-Next, create four "final" datasets that follow four different filtering procedures outlined above. 
+Next, create "final" datasets that follow different filtering procedures outlined above. 
 
 ```{r}
 ##### 1) take averages across all releavnt days ##### 
@@ -397,7 +405,28 @@ chemo_dd_eqs_first <- chemo_dd_eqs %>%
   slice_min(day, with_ties = FALSE) %>%
   mutate(n = 1)
 
-##### 4) keep samples from day 4 only  ##### 
+##### 4) keep samples from day 1 only  ##### 
+# filtering from chemo_dd not chemo_dd_eqs as we aren't following heuristics
+chemo_dd_eqs_day1 <- chemo_dd %>%
+  select(-c(sample)) %>%
+  filter(day == 1) %>%
+  mutate(n = 1)
+
+##### 5) keep samples from day 2 only  ##### 
+# filtering from chemo_dd not chemo_dd_eqs as we aren't following heuristics
+chemo_dd_eqs_day2 <- chemo_dd %>%
+  select(-c(sample)) %>%
+  filter(day == 2) %>%
+  mutate(n = 1)
+
+##### 6) keep samples from day 3 only  ##### 
+# filtering from chemo_dd not chemo_dd_eqs as we aren't following heuristics
+chemo_dd_eqs_day3 <- chemo_dd %>%
+  select(-c(sample)) %>%
+  filter(day == 3) %>%
+  mutate(n = 1)
+
+##### 7) keep samples from day 4 only  ##### 
 # filtering from chemo_dd not chemo_dd_eqs as we aren't following heuristics
 chemo_dd_eqs_day4 <- chemo_dd %>%
   select(-c(sample)) %>%
@@ -416,6 +445,9 @@ write.csv(chemo_dd_eqs, "data/processed/equilibrium_samples.csv", row.names = F)
 write.csv(chemo_dd_eqs_av, "data/processed/equilibrium_samples_av.csv", row.names = F)
 write.csv(chemo_dd_eqs_last, "data/processed/equilibrium_samples_last.csv", row.names = F)
 write.csv(chemo_dd_eqs_first, "data/processed/equilibrium_samples_first.csv", row.names = F)
+write.csv(chemo_dd_eqs_day1, "data/processed/equilibrium_samples_day1.csv", row.names = F)
+write.csv(chemo_dd_eqs_day2, "data/processed/equilibrium_samples_day2.csv", row.names = F)
+write.csv(chemo_dd_eqs_day3, "data/processed/equilibrium_samples_day3.csv", row.names = F)
 write.csv(chemo_dd_eqs_day4, "data/processed/equilibrium_samples_day4.csv", row.names = F)
 ```
 
