@@ -31,7 +31,7 @@ all_samples <- read.csv("data/processed/all_samples.csv")
 equilibrium_samples <- read.csv("data/processed/equilibrium_samples.csv")
 chibio <- read.csv("data/processed/chibio.csv")
 
-# four "final" datasets
+# "final" datasets
 chemo_dd_eqs_av <- read.csv("data/processed/equilibrium_samples_av.csv")
 chemo_dd_eqs_last <- read.csv("data/processed/equilibrium_samples_last.csv")
 chemo_dd_eqs_first <- read.csv("data/processed/equilibrium_samples_first.csv")
@@ -307,17 +307,17 @@ chibio_plot <- chibio %>%
 ggplot(chibio_plot, aes(x = hours, y = od_measured, 
                    group = ID, color = dilution_rate)) +
   
-  # Faint points for each observation (use alpha to make them faint)
+  # Each observation 
   geom_point(alpha = 0.1, size = 0.5) +
   
   # Smoothed lines for each ID
   geom_smooth(aes(group = ID), method = "loess", 
               se = FALSE, size = 1.2, span = 0.15) +
   
-  # Set a continuous color gradient from pale blue to dark blue
-  scale_color_gradient(low = "#185266", high = "#3BDCB4") +
+  # Set a continuous color gradient 
+  scale_color_gradient(low = "#3BDCB4", high = "#185266") +
   
-  # Add verticle lines for sampling moments
+  # Add vertical lines for sampling moments
   geom_vline(xintercept = c(24, 48, 72, 96),
              linetype = "dashed", color = "grey40", size = 0.5) +
   

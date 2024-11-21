@@ -18,30 +18,40 @@ Load packages and clear environment
 #### Required packages
 library(tidyverse)  
 library(brms)
+library(cowplot)
 
 #### Clear  environment 
 rm(list = ls())   
 ```
 
-Load data
-
 ```{r}
 all_samples <- read.csv("data/processed/all_samples.csv")
 equilibrium_samples <- read.csv("data/processed/equilibrium_samples.csv")
 chibio <- read.csv("data/processed/chibio.csv")
+
+# "final" datasets
+chemo_dd_eqs_av <- read.csv("data/processed/equilibrium_samples_av.csv")
+chemo_dd_eqs_last <- read.csv("data/processed/equilibrium_samples_last.csv")
+chemo_dd_eqs_first <- read.csv("data/processed/equilibrium_samples_first.csv")
+chemo_dd_eqs_day1 <- read.csv("data/processed/equilibrium_samples_day1.csv")
+chemo_dd_eqs_day2 <- read.csv("data/processed/equilibrium_samples_day2.csv")
+chemo_dd_eqs_day3 <- read.csv("data/processed/equilibrium_samples_day3.csv")
+chemo_dd_eqs_day4 <- read.csv("data/processed/equilibrium_samples_day4.csv")
 ```
+
+For the exploratory analyses here I'll use `chemo_dd_eqs_av`, which we believe is the most sensible way of selecting equilibrium points. Once our modelling framework is decided, we'll run the analyses with all the different "final" datasets. 
 
 
 ### Flipped theta-logistic model 
 
-For this first attempt I'll use OD and dilution rate from `equilibrium_samples` - 31 observations, no pseudoreplication. `experiment_replicate` may be a grouping factor that I can use for multi-level models. We manipulated dilution rate (we can be confident that there is no/low error around these values) and OD is our response variable. This means we are kind of flipping the theta-logistic model on its head. 
+For this first attempt I'll use OD and dilution rate from `equilibrium_samples` - 30 observations, no pseudoreplication. `experiment_replicate` may be a grouping factor that I can use for multi-level models. We manipulated dilution rate (we can be confident that there is no/low error around these values) and OD is our response variable. This means we are flipping the theta-logistic model on its head. 
 
 The standard theta-logistic model is: 
 
 $$
 \frac{1}{N} \frac{d N}{d t}=r\left(1-\left(\frac{N}{K}\right)^\theta\right)
 $$
-Where $\frac{1}{N} \frac{d N}{d t} = g$ is the per capita growth (i.e. `dilution_rate`), $N$ is the abundance/density (i.e., `avg_od_blanked`), $r$ is the intrinsic growth rate, $K$ is the carrying capacity, and $\theta$ is the parameter that controls the shape of density dependence. 
+Where $\frac{1}{N} \frac{d N}{d t} = g$ is the per capita growth (i.e. `dilution_rate`), $N$ is the abundance/density (i.e., `od_blanked`), $r$ is the intrinsic growth rate, $K$ is the carrying capacity, and $\theta$ is the parameter that controls the shape of density dependence. 
 When $\theta$ is 1, it is linear (i.e., logistic growth model), when it is >1 the density dependence is concave (what we expect based on consumer-resource theory), when it is <1 the density dependence is sublinear (a hot topic at the moment). 
 
 We will be using `brms` to estimate the values of $r$, $K$, and most importantly $\theta$, based on the relationship between $g$ and $N$. However, as we manipulated per capita growth, we need to express the theta-logistic model in terms of $N$ (our response variable given our experimental design). 
@@ -58,20 +68,41 @@ N=K\left(1-\frac{g}{r}\right)^{\frac{1}{\theta}}
 $$
 
 
-#### first attempt with brms
+#### First attempt with brms
 
 Will use Gamma error distribution with the identity link - accounts for the fact that we can't have negative OD (may be relevant for the higher dilution rates, where r is trying to be fit). 
+
 
 Also worth trying to include the random effect of experiment replicate on one/all of the parameters we're trying to estimate. 
 
 Non-linear models in `brms` require fairly informative priors. Make sure prior for theta is very loose as this is the main one we're interested in. 
+
+The data we're trying to fit the model to are: 
+
+```{r, fig.height=3, fig.width=4}
+ggplot(chemo_dd_eqs_av, aes(y = od_blanked, 
+                                      x = dilution_rate, 
+                                      shape = experiment_replicate)) +
+  geom_point(size = 2) + 
+  labs(y = "OD", x = "Dilution rate (ml/hour/ml)",
+       title = "chemo_dd_eqs_av") +
+  scale_shape_manual(values = c(15:19), name = "Replicate") +
+  theme_minimal()
+```
+$\theta$ will describe the curvature of the line. $r$ describes the intercept with the x axis (maximum possible growth rate). $K$ describes the intercept with the y axis (carrying capacity). Based on this prior knowledge, we can provide some semi-informative priors for the data. 
+
+We'll say r will fall somewhere between 0.9 and 1.2 
+
+We'll say K will fall somewhere between 0.1 and 0.25
+
+We'll give loose priors for theta, as this is the main parameter we're interest in and don't want to potentially bias the results. So we'll say it falls somewhere between -0.5 (highly sublinear) and 5 (highly supralinear).
 
 ```{r, include = F}
 
 model <- brm(
   
   # model formula (parameters to fit are identified and nl flag is set)
-  bf(avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ (1 / theta),
+  bf(od_blanked ~ K * (1 - (dilution_rate / r)) ^ (1 / theta),
      K ~ 1, # + (1|experiment_replicate),
      r ~ 1, #+ (1|experiment_replicate),
      theta ~ 1, # + (1|experiment_replicate),
@@ -79,7 +110,7 @@ model <- brm(
   ),
   
   # data to use
-  data = equilibrium_samples,
+  data = chemo_dd_eqs_av,
   
   # errors are gamma with identity link function (OD can't be negative)
   family = Gamma(link = "identity"), 
@@ -122,14 +153,14 @@ predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
 
 # Theta-logistic with user-defined functions
 K <- 0.18  
-r <- 1.07 
-theta <- 2.41  
+r <- 1.05 
+theta <- 2  
 dilution_rate_seq <- seq(0, 1.1, by = 0.001)
 avg_od_blanked_curve <- K * (1 - (dilution_rate_seq / r)) ^ (1 / theta)
 curve_data <- data.frame(dilution_rate = dilution_rate_seq, avg_od_blanked = avg_od_blanked_curve)
 
 # Create the plot with the original data points and model predictions
-ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
+ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate)) +
   geom_point() +
   labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
        color = "experiment") +
@@ -143,56 +174,60 @@ ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
               alpha = 0.2, inherit.aes = FALSE) + 
   
   # user defined model
-  #geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
-  #            color = "blue", size = 1) +
+  geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
+              color = "blue", size = 1) +
    
   theme_minimal()
 ```
-Black line is the model with the gamma errors Blue line is the the model fitted with gaussian errors. 
+Black line is the model with the gamma errors. Blue line is a model with parameters chosen by eye to just thinka bout whether the r bounding is causing fitting problems. Seems to be. If r was able to be lower, then theta would probably be higher. 
 
 Flip the axes (for density-dependence perspective) and fit a theta-logistic model with parameters from above. 
 
-```{r}
+```{r, fig.width=3, fig.height=3}
 
 # Theta-logistic model with parameters from above
-K <- 0.20   
-r <- 1.08   
-theta <- 1.84  
+K <- 0.19   
+r <- 1.09   
+theta <- 1.75  
 od_seq <- seq(0, 0.2, by = 0.001)
 dilution_curve <- r * (1 - (od_seq / K)^ theta)
-curve_data <- data.frame(avg_od_blanked = od_seq, 
+curve_data <- data.frame(od_blanked = od_seq, 
                          dilution_rate = dilution_curve)
 curve_data <- curve_data %>% filter(dilution_rate > 0)
 
 
 # Density-dependent plot
-ggplot(equilibrium_samples, aes(x = avg_od_blanked, y = dilution_rate)) +
+ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate)) +
   geom_point() +
   labs(x = "OD", y = "Dilution rate (ml/hour/ml)", 
        color = "experiment") +
   
   # theta-logistic
-  geom_line(data = curve_data, aes(x = avg_od_blanked, y = dilution_rate), 
+  geom_line(data = curve_data, aes(x = od_blanked, y = dilution_rate), 
               color = "blue", size = 1) +
   
   theme_minimal()
 ```
 
-**problem when $\frac{g}{r} > 1$**
+**Problem when $\frac{g}{r} > 1$**
 
 What is causing this affect?
 
 If $r = g$, then 0 will be raised to the power of $1/\theta$ which will just give 0, so I can see why the model would struggle there. 
 
-If $r < g$, then a negative value will be raised to the power of $1/\theta$ which also seems to be problematic. Raising a negative value to a fractional power seems problematic upon a quick google (complex numbers issues, undefined issues)
+If $r < g$, then a negative value will be raised to the power of $1/\theta$ which is problematic (issues with complex numbers). 
 
-In theory it shouldn't be possible for us to get r values that are smaller than g, as g occurs at the intercept. However, our model is presumably not following theta-logistic perfectly and there is also error associated with `dilution_rate`. Not immedietely clear what to do from here. 
+In theory it shouldn't be possible for us to get r values that are smaller than g. However, our model is presumably not following theta-logistic perfectly and there is also error associated with `dilution_rate`. 
 
-It seems that "reparameterization" is needed - one option is to transform r. I've tried using exp(log_r) and exp(r) and inv_r - but none of these made a difference. I think the issues are with the raising to the power of a fraction? 
+There are several potential options here if we are really keen to stick with the theta-logistic model: 
+
+1. try to reparameterize the model so that we don't have this issue .
+
+2. try to incorporate measurement error into the estimate of `dilution_rate`.
 
 #### finding a better parameterization for r
 
-I've tried using exp(log_r), exp(r), inv_v, inv_theta - none of these seemed to make a difference
+I've tried using exp(log_r), exp(r), inv_v, inv_theta - none of these seemed to make a difference.
 
 I also tried a logarithmic transformation: 
 
@@ -206,7 +241,7 @@ model_trans <- brm(
   
   # model formula (parameters to fit are identified and nl flag is set)
   bf(
-    log(avg_od_blanked) ~ log(K) + (1 / theta) * log( 1 - (dilution_rate / r)),
+    log(od_blanked) ~ log(K) + (1 / theta) * log( 1 - (dilution_rate / r)),
     #avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ (1 / theta),
     #avg_od_blanked ~ K * (1 - (((dilution_rate + e)) / r)) ^ (1 / theta),
     #avg_od_blanked ~ K * (1 - (dilution_rate / r)) ^ invtheta,
@@ -221,7 +256,7 @@ model_trans <- brm(
   ),
   
   # data to use
-  data = equilibrium_samples,
+  data = chemo_dd_eqs_av,
   
   # errors are gaussian
   family = gaussian(), 
@@ -257,7 +292,7 @@ conditional_effects_data <- conditional_effects(model_trans)
 
 predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
 
-ggplot(equilibrium_samples, aes(y = log(avg_od_blanked), x = dilution_rate)) +
+ggplot(chemo_dd_eqs_av, aes(y = log(od_blanked), x = dilution_rate)) +
   geom_point() +
   
   geom_line(data = predicted_data, aes(y = estimate__, 
@@ -272,32 +307,31 @@ ggplot(equilibrium_samples, aes(y = log(avg_od_blanked), x = dilution_rate)) +
   theme_minimal()
 ```
 
-This has the same issue as before (undefined when r is smaller than g). However, I guess because of the transformation the fit of this model is a lot better, there are basically no divergences, but r is still bounded - with a reasonably tight prior for r I get slightly better results, but interpreting all of this seems odd. Does theta still mean the density dependence that we thought? Probably not.. 
+This has the same issue as before (undefined when r is smaller than g). However, I guess because of the transformation the fit of this model is a lot better, there are basically no divergences, but r is still bounded - with a reasonably tight prior for r I get slightly better results, but interpreting all of this seems odd. Does theta still mean the density dependence that we thought? =
 
 Also - should the error distribution be changed to Gamma as well? Probably doesn't need to be?
 
 
 #### Measurement error
 
-
 I had the idea of adding an "error" term to dilution rate - this would allow r to be smaller than g (if e was negative enough) - really not sure if this makes any sense.
 
 $$
 N=K\left(1-\frac{g + e}{r}\right)^{\frac{1}{\theta}}
 $$
-
-
-There is a `brms` function called `mi()` that can be used to do this probably. Need to investigate that!
+After chatting with Andrew, it turns out that there is a `brms` function called `mi()` that can be used to do this probably. Need to investigate that!
 
 https://discourse.mc-stan.org/t/measurement-error-in-nonlinear-mixed-effect-models/17610/5
 
-mi/me don't work directly with non-linear functions. You have to set up latent variables for them. Based on the link above (question answered by package author) if you do `X ~ 1 + me(dilution_rate, sd)` that would also include an intercept, which he thinks you don't need? He suggested doing: `X ~ 0 + me(dilution_rate, sd)`. 
+`mi()`/`me()` don't work directly with non-linear functions. You have to set up latent variables for them. Based on the link above (question answered by package author) if you do `X ~ 1 + me(dilution_rate, sd)` that would also include an intercept, which he thinks you don't need? He suggested doing: `X ~ 0 + me(dilution_rate, sd)`. 
+
+I've tried both approaches, but in any case the fit doesn't really work. 
 
 ```{r, include = F}
 model_me <- brm(
   
   # model formula (parameters to fit are identified and nl flag is set)
-  bf(avg_od_blanked ~ K * (1 - (X / r)) ^ (1 / theta),
+  bf(od_blanked ~ K * (1 - (X / r)) ^ (1 / theta),
      X ~ 0 + me(dilution_rate, 0.005),
      K ~ 1, # + (1|experiment_replicate),
      r ~ 1, #+ (1|experiment_replicate),
@@ -306,7 +340,7 @@ model_me <- brm(
   ),
   
   # data to use
-  data = equilibrium_samples,
+  data = chemo_dd_eqs_av,
   
   # errors are gamma with identity link function (OD can't be negative)
   family = Gamma(link = "identity"), 
@@ -331,7 +365,7 @@ summary(model_me)
 plot(model_me)
 conditional_effects(model_me)
 pairs(model_me)
-pp_check(model_me, type = "scatter_avg")
+#pp_check(model_me, type = "scatter_avg")
 ```
 
 
@@ -342,7 +376,7 @@ predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
 
 
 # Create the plot with the original data points and model predictions
-ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
+ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate)) +
   geom_point() +
   labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
        color = "experiment") +
@@ -354,28 +388,32 @@ ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
                                          ymax = upper__, 
                                          x = dilution_rate), 
               alpha = 0.2, inherit.aes = FALSE) + 
-  
-  # user defined model
-  #geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
-  #            color = "blue", size = 1) +
+
    
   theme_minimal()
 ```
 
+Measurement error does slightly decrease the value of r and increase the value of theta in our data. 
 
+To be honest, I think going with one of these models (probably the first one with Gamma) would be totally fine. If anything we are underestimating theta due to the issue with r and g in the flipped model. Our point is very well supported. And we can show concave down shape with other models too (see below).
+
+The value of using a canonical model in density dependence work seems worth it to me? To discuss as a group. 
 
 
 ### Polynomial models 
 
-Run a linear model, quadratic model, and quadratic model with random effects
+Run a linear model, quadratic model, and quadratic model (can think about including random effects later if required)
+
+Still need to use gamma error distribution - make sure link function is identity (default is log). Here we can use very relaxed priors as these are linear models, which `brms` is very good at fitting. 
+
 
 ```{r, include=FALSE}
 
 ########## linear model ##########
 linear_model <- brm(
-  formula = avg_od_blanked ~ dilution_rate,
-  data = equilibrium_samples,
-  family = gaussian(), 
+  formula = od_blanked ~ dilution_rate,
+  data = chemo_dd_eqs_av,
+  family = Gamma(link = "identity"), 
   priors <- c(
     set_prior("normal(0, 10)", class = "Intercept"),           
     set_prior("normal(0, 5)", class = "b", coef = "dilution_rate")   
@@ -387,9 +425,9 @@ linear_model <- brm(
 
 ########## quadratic model ##########
 quad_model <- brm(
-  formula = avg_od_blanked ~ dilution_rate + I(dilution_rate^2), 
-  data = equilibrium_samples,
-  family = gaussian(), 
+  formula = od_blanked ~ dilution_rate + I(dilution_rate^2), 
+  data = chemo_dd_eqs_av,
+  family = Gamma(link = "identity"), 
   priors <- c(
     set_prior("normal(0, 10)", class = "Intercept"),           
     set_prior("normal(0, 5)", class = "b", coef = "dilution_rate"),   
@@ -400,31 +438,11 @@ quad_model <- brm(
                  max_treedepth = 10)
   )
 
-########## quadratic model with random effects ##########
-quad_model_random <- brm(
-  formula = avg_od_blanked ~ dilution_rate + I(dilution_rate^2) +
-    (1 + dilution_rate + I(dilution_rate^2) | experiment_replicate),  
-  data = equilibrium_samples,
-  family = gaussian(), 
-  priors <- c(
-    set_prior("normal(0, 10)", class = "Intercept"),           
-    set_prior("normal(0, 5)", class = "b", coef = "dilution_rate"),   
-    set_prior("normal(0, 5)", class = "b", coef = "Idilution_rateE2"), 
-    set_prior("normal(0, 2)", class = "sd", group = "experiment_replicate"), 
-    set_prior("normal(0, 2)", class = "sd", group = "experiment_replicate", coef = "dilution_rate"), 
-    set_prior("normal(0, 2)", class = "sd", group = "experiment_replicate", coef = "Idilution_rateE2"),
-    set_prior("normal(0, 2)", class = "sigma")
-    ), 
-  iter = 4000, warmup = 2000, chains = 4,
-  control = list(adapt_delta = 0.95,
-                 max_treedepth = 10)
-  )
-
 ########## cubic model ##########
 cubic_model <- brm(
-  formula = avg_od_blanked ~ dilution_rate + I(dilution_rate^2) + I(dilution_rate^3) , 
-  data = equilibrium_samples,
-  family = gaussian(), 
+  formula = od_blanked ~ dilution_rate + I(dilution_rate^2) + I(dilution_rate^3) , 
+  data = chemo_dd_eqs_av,
+  family = Gamma(link = "identity"), 
   priors <- c(
     set_prior("normal(0, 10)", class = "Intercept"),           
     set_prior("normal(0, 5)", class = "b", coef = "dilution_rate"),   
@@ -438,18 +456,17 @@ cubic_model <- brm(
 ```
 
 ```{r}
-pp_check(linear_model, ndraws = 20)
-pp_check(quad_model, ndraws = 20)
-pp_check(quad_model_random, ndraws = 20)
-pp_check(cubic_model, ndraws = 20) 
+pp_check(linear_model, type = "scatter_avg")
+pp_check(quad_model, type = "scatter_avg")
+pp_check(cubic_model, type = "scatter_avg")
 ```
 
 
 ```{r}
-loo(linear_model, quad_model, quad_model_random, cubic_model)
+loo(linear_model, quad_model, cubic_model)
 ```
-Seems like quadratic without random effects is best. Cubic has very similar fit, so no benefit of including it. 
 
+Seems like quadratic is best. Cubic has very similar fit, so no benefit of including it. 
 
 ```{r}
 summary(quad_model)
@@ -469,7 +486,16 @@ conditional_effects_data <- conditional_effects(quad_model)
 predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
 
 
-ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
+# Theta-logistic with parameters from above
+K <- 0.19  
+r <- 1.09 
+theta <- 1.75  
+dilution_rate_seq <- seq(0, 1.1, by = 0.001)
+avg_od_blanked_curve <- K * (1 - (dilution_rate_seq / r)) ^ (1 / theta)
+curve_data <- data.frame(dilution_rate = dilution_rate_seq, avg_od_blanked = avg_od_blanked_curve)
+
+
+ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate)) +
   geom_point() +
   
   geom_line(data = predicted_data, aes(y = estimate__, 
@@ -480,9 +506,15 @@ ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
               alpha = 0.2, inherit.aes = FALSE) + 
   
   labs(y = "OD", x = "Dilution rate (ml/hour/ml)") +
+  
+  # flipped theta logistic with parameters from Gamma model
+  geom_line(data = curve_data, aes(y = avg_od_blanked, x = dilution_rate), 
+              color = "blue", size = 1) +
+  
   theme_minimal()
 ```
 
+^ You can clearly see that a polynomial is much more flexible than the flipped theta-logistic. 
 
 
 
@@ -493,18 +525,116 @@ We can also try a power model. We are looking for a simple power model that is v
 $$ y = ax^\frac{1}{\beta} + c $$
 Where $y$ is equal to OD, $x$ is equal to dilution rate, $a$ is related to where the curve cross the $x$ axis (but not quite intercept as it varies depending on $\beta$ - it must be negative for the function to be decreasing), $\beta$ is the curvature (linear when 1, convex when greater than 1, and concave when lower than 1, must be above 0), and $c$ is the y intercept (when x is 0). 
 
+First, I want to just create a plot that illustrates how this power model could fit all sorts of shapes for density dependence, from sublinear, to linear, to supralinear. So I want to keep the x and y axis fixed and change the curvature just as an illustration. To keep the y axis fixed is easy - keep c fixed. The x axis is more tricky.. 
+
+Determine $a$ dynamically based on $beta$ so that the x intercept remains constant. To do this we fix $x_{int}$, the x intercept, and we fix $c$, the y intercept, then we solve for $a$ based on the value of $beta$ we have:
+
+$$ a = \frac{-c}{x_{int}^{1/\beta}}$$
+
+Once $a$, $/beta$, and $c$ are calculate, we can invert - express in terms of x to get the classic density-dependence perspective
+
+$$x\ =\ \left(\frac{y-c}{a}\right)^{B}$$
+
+Show what different values of 
+
+```{r, fig.height=4, fig.width=10}
+# Parameters that stay constant 
+x <- seq(0, 1, length.out = 100)   # Fixed x-axis range 
+#y <- seq(0, 1, length.out = 100)   # Fixed y-axis range
+x_int <- 1                         # Fixed x-axis intercept
+c <- 1                             # Fixed y-axis intercept
+
+# setting up my betas so they are symmetric and evenly spaced
+start <- 1.2    # Starting value
+factor <- 1.2   # Multiplication factor
+n <- 8         # number of betas above 1
+beta_higher <- start * factor^(0:(n - 1))   # Betas above 1
+beta_lower <- 1 / beta_higher               # Symmetric betas below 1
+beta_values <- sort(c(beta_lower, 1, beta_higher))
+
+# Dynamically generating a and getting data for each beta:a combination
+data <- do.call(rbind, lapply(beta_values, function(beta) {
+  a <- -c / x_int^(1 / beta)  # Adjust 'a' dynamically 
+  
+  # power model we are fitting
+  y <- a * x^(1 / beta) + c
+  
+  # Inverse model: solving for x in terms of y
+  x_inv <- ((y - c) / a) ^ beta  
+  
+  # Returning both original and inverted models
+  data.frame(x = x, y = y, x_inv = x_inv, beta = beta, a = a)
+  
+}))
+
+# Extract unique (beta, a) pairs, in case we want to annotate later
+annotations <- unique(data[c("beta", "a")])
+
+# Plot with log-transformed color mapping
+
+selected_betas <- c(0.25, 0.5, 1, 2, 4) 
+
+p1 <- ggplot(data, aes(x = x, y = y, color = log10(beta), group = beta)) +
+  geom_line(size = 1) +
+  labs(
+    x = "Per capita growth",
+    y = "Density",
+    color = "Beta",
+    title = "Fitted power model"
+  ) +
+  scale_color_gradient2(
+    low = "#3BDCB4",      # Color for low beta values
+    mid = "gray95",     # Neutral color for log10(beta) = 0 (beta = 1)
+    high = "#185266",    # Color for high beta values
+    midpoint = 0,      # log10(beta = 1) = 0
+    limits = c(log10(min(data$beta)), log10(max(data$beta))), # Symmetric limits
+    breaks = log10(c(0.25, 0.5, 1, 2, 4)),   # Use original beta values
+    labels = c(0.25, 0.5, 1, 2, 4)        # Show actual beta values in the legend
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "right" 
+  )
+
+p2 <- ggplot(data, aes(x = y, y = x_inv, color = log10(beta), group = beta)) +
+  geom_line(size = 1) +
+  labs(
+    y = "Per capita growth",
+    x = "Density",
+    color = "Beta",
+    title = "Flipped power model"
+  ) +
+  scale_color_gradient2(
+    low = "#3BDCB4",      # Color for low beta values
+    mid = "gray95",     # Neutral color for log10(beta) = 0 (beta = 1)
+    high = "#185266",    # Color for high beta values
+    midpoint = 0,      # log10(beta = 1) = 0
+    limits = c(log10(min(data$beta)), log10(max(data$beta))), # Symmetric limits
+    breaks = log10(c(0.25, 0.5, 1, 2, 4)),   # Use original beta values
+    labels = c(0.25, 0.5, 1, 2, 4)        # Show actual beta values in the legend
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "right" 
+  )
+
+plot_grid(p1, p2)
+```
+
+
+
 ```{r, include = F}
 
 power_model <- brm(
   # Model formula (parameters to fit are identified and nl flag is set)
-  bf(avg_od_blanked ~ a * (dilution_rate^(1/b)) + c, 
+  bf(od_blanked ~ a * (dilution_rate^(1/b)) + c, 
     a ~ 1,  
     b ~ 1,  
     c ~ 1,  
     nl = TRUE
   ),
   # Data to use
-  data = equilibrium_samples,
+  data = chemo_dd_eqs_av,
   
   # Errors are gamma with identity link function
   family = Gamma(link = "identity"),
@@ -539,7 +669,7 @@ conditional_effects_data <- conditional_effects(power_model)
 predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
 
 # Create the plot with the original data points and model predictions
-ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
+ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate)) +
   geom_point() +
   labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
        color = "experiment") +
@@ -555,7 +685,51 @@ ggplot(equilibrium_samples, aes(y = avg_od_blanked, x = dilution_rate)) +
   theme_minimal()
 ```
 
-Using gamma or Gaussian errors doesn't change the general fit or parameter estimates. Gamma probably makes sense from a more general theoretical perspective? 
+Using gamma or Gaussian errors doesn't change the general fit or parameter estimates. Gamma probably makes sense from a more general theoretical perspective.
+
+
+Flip the power model so we can see what our model looks from the classic density-dependence perspective
+
+$$x\ =\ \left(\frac{y-c}{a}\right)^{B}$$
+
+```{r, fig.height=3, fig.width=3}
+
+# Flipped power model with parameters estimated from above
+a <- -0.13   
+b <- 0.45   
+c <- 0.17  
+od_seq <- seq(0, 0.25, by = 0.001)
+dilution_curve <- ((od_seq - c) / a)^b
+curve_data <- data.frame(od_blanked = od_seq, 
+                         dilution_rate = dilution_curve)
+curve_data <- curve_data %>% filter(dilution_rate > 0)
+
+
+# Density-dependent plot
+ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate)) +
+  geom_point() +
+  labs(x = "OD", y = "Dilution rate (ml/hour/ml)", 
+       color = "experiment") +
+  
+  # theta-logistic
+  geom_line(data = curve_data, aes(x = od_blanked, y = dilution_rate), 
+              color = "blue", size = 1) +
+  
+  theme_minimal()
+```
+
+
+
+
+### Flipped power model 
+
+
+
+
+
+
+
+
 
 
 
