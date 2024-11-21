@@ -535,6 +535,7 @@ Once $a$, $/beta$, and $c$ are calculate, we can invert - express in terms of x 
 
 $$x\ =\ \left(\frac{y-c}{a}\right)^{B}$$
 
+
 Show what different values of 
 
 ```{r, fig.height=4, fig.width=10}
@@ -1010,4 +1011,269 @@ There are no divergence issues. The actual modelling fitting / parameterization 
 max OD is: 0.18980, posteriors for K are able to cross this - so that doesn't seem to be an issue here. 
 
 Don't know how much we should trust this as here we are assuming there is no error in OD and that there is error in dilution_rate - this is the opposite to what we think. So I don't think fitting these models this way really makes sense. 
+
+
+
+
+
+### Three options to model our data
+
+The end goal is to study to shape of density-dependence. So let's start by showing the candidate models from the density dependence perspective. 
+
+The three models are: 
+
+- Theta logistic 
+
+$$
+g=r\left(1-\left(\frac{N}{K}\right)^\theta\right)
+$$
+
+- Power model 
+
+$$ 
+y = ax^\frac{1}{\beta} + c 
+$$
+
+
+- Inverted power model 
+
+$$
+x\ =\ \left(\frac{y-c}{a}\right)^{B}
+$$
+
+For each of these models, I'd like to fix the x and y intercepts and then vary the curvature of the model from sublinear, through linear, to supralinear - to give an indication of what parameters in the models we are interested in estimated in in the data.  
+
+
+```{r, fig.height=4, fig.width=15}
+# Parameters that stay constant 
+x <- seq(0, 1, length.out = 100)    # Fixed x-axis range 
+x_int <- 1                          # Fixed x-axis intercept
+y_int <- 1                          # Fixed y-axis intercept
+
+# setting up my betas so they are symmetric and evenly spaced
+# theta same as beta so can use that 
+start <- 1.2    # Starting value
+factor <- 1.2   # Multiplication factor
+n <- 8         # number of betas above 1
+beta_higher <- start * factor^(0:(n - 1))   # Betas above 1
+beta_lower <- 1 / beta_higher               # Symmetric betas below 1
+beta_values <- sort(c(beta_lower, 1, beta_higher))
+
+# Dynamically generating a and getting data for each beta:a combination
+power_data <- do.call(rbind, lapply(beta_values, function(beta) {
+  a <- -y_int / x_int^(1 / beta)  # Adjust 'a' dynamically 
+  
+  # power model we are fitting
+  y_p <- a * x^(1 / beta) + y_int
+  
+  # Inverse model: solving for x in terms of y
+  x_inv <- ((y_p - y_int) / a) ^ beta  
+  
+  # Theta logistic 
+  y_t <- y_int * (1 - (x / x_int)^beta)
+  
+  # Returning both original and inverted models
+  data.frame(x = x, y_p = y_p, x_inv = x_inv, beta = beta, y_t = y_t)
+  
+}))
+
+
+
+
+# Plot with log-transformed color mapping
+
+p1 <- ggplot(power_data, aes(x = x, y = y_t, color = log10(beta), group = beta)) +
+  geom_line(size = 1) +
+  labs(
+    y = "Per capita growth",
+    x = "Density",
+    color = "Theta",
+    title = "1. Theta logistic"
+  ) +
+  scale_color_gradient2(
+    low = "#3BDCB4",      # Color for low beta values
+    mid = "gray95",     # Neutral color for log10(beta) = 0 (beta = 1)
+    high = "#185266",    # Color for high beta values
+    midpoint = 0,      # log10(beta = 1) = 0
+    limits = c(log10(min(data$beta)), log10(max(data$beta))), # Symmetric limits
+    breaks = log10(c(0.25, 0.5, 1, 2, 4)),   # Use original beta values
+    labels = c(0.25, 0.5, 1, 2, 4)        # Show actual beta values in the legend
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "right" 
+  )
+
+
+p2 <- ggplot(power_data, aes(x = x, y = y_p, color = log10(beta), group = beta)) +
+  geom_line(size = 1) +
+  labs(
+    y = "Per capita growth",
+    x = "Density",
+    color = "Beta",
+    title = "2. Power model"
+  ) +
+  scale_color_gradient2(
+    low = "#3BDCB4",      # Color for low beta values
+    mid = "gray95",     # Neutral color for log10(beta) = 0 (beta = 1)
+    high = "#185266",    # Color for high beta values
+    midpoint = 0,      # log10(beta = 1) = 0
+    limits = c(log10(min(data$beta)), log10(max(data$beta))), # Symmetric limits
+    breaks = log10(c(0.25, 0.5, 1, 2, 4)),   # Use original beta values
+    labels = c(0.25, 0.5, 1, 2, 4)        # Show actual beta values in the legend
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "right" 
+  )
+
+
+
+p3 <- ggplot(power_data, aes(x = y_p, y = x_inv, color = log10(beta), group = beta)) +
+  geom_line(size = 1) +
+  labs(
+    y = "Per capita growth",
+    x = "Density",
+    color = "Beta",
+    title = "3. Inverted power model"
+  ) +
+  scale_color_gradient2(
+    low = "#3BDCB4",      # Color for low beta values
+    mid = "gray95",     # Neutral color for log10(beta) = 0 (beta = 1)
+    high = "#185266",    # Color for high beta values
+    midpoint = 0,      # log10(beta = 1) = 0
+    limits = c(log10(min(data$beta)), log10(max(data$beta))), # Symmetric limits
+    breaks = log10(c(0.25, 0.5, 1, 2, 4)),   # Use original beta values
+    labels = c(0.25, 0.5, 1, 2, 4)        # Show actual beta values in the legend
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "right" 
+  )
+
+plot_grid(p1, p2, p3, nrow = 1)
+```
+
+As our experiment takes the alternative perspective, where per capita growth rate (dilution rate) is the explantory variable. We will fit our data with the inverse versions of each of these models. 
+
+
+#### 1. Flipped theta logistic 
+
+```{r, include = F}
+ft_model <- brm(
+  bf(od_blanked ~ K * (1 - (dilution_rate / r)) ^ (1 / theta),
+     K ~ 1, 
+     r ~ 1, 
+     theta ~ 1, 
+     nl = TRUE
+     ),
+  
+  data = chemo_dd_eqs_av,
+  
+  family = Gamma(link = "identity"), 
+  
+  prior = c(
+    prior(uniform(0.9, 1.2), nlpar = "r", lb = 0.9, ub = 1.2),  
+    prior(uniform(0.10, 0.25), nlpar = "K", lb = 0.10, ub = 0.25), 
+    prior(uniform(-0.5, 5), nlpar = "theta", lb = -0.5, ub = 5) 
+    ),
+  
+  iter = 3000, warmup = 1500, chains = 4,
+  control = list(adapt_delta = 0.9,
+                 max_treedepth = 10),
+  )
+```
+
+```{r, fig.height=4, fig.height=12}
+
+################### model predictions ############################
+conditional_effects_data <- conditional_effects(ft_model)
+predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
+
+p1 <- ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate)) +
+  labs(
+    y = "Density (OD)", x = "Dilution rate (ml/hour/ml)") +
+  geom_line(data = predicted_data, 
+            aes(y = estimate__, x = dilution_rate), 
+            color = "#185266", size = 3) +
+  geom_ribbon(
+    data = predicted_data,
+    aes(ymin = lower__, ymax = upper__, x = dilution_rate),
+    alpha = 0.2, inherit.aes = FALSE
+  ) +
+  geom_point(colour = "#185266", size = 5) +
+  theme_light(base_size = 25) 
+
+
+
+################### theta estimate ############################
+
+posterior <- posterior_samples(ft_model)
+theta_samples <- posterior$`b_theta_Intercept`
+
+p2 <- ggplot(data.frame(theta = theta_samples), aes(x = theta)) +
+  geom_histogram(binwidth = 0.025, fill = "#185266", color = NA, alpha = 0.7) +
+  labs(
+    x = expression(theta),
+    y = "Frequency"
+  ) +
+  scale_x_log10(
+    limits = c(0.25, 4),                # Set range of x-axis
+    breaks = c(0.25, 0.5, 1, 2, 4),     # Logarithmic breaks
+    labels = scales::label_number()     # Format labels as numbers
+  ) +
+  theme_light(base_size = 25) 
+
+
+
+################### density dependence ############################
+K <- mean(posterior$`b_K_Intercept`)
+r <- mean(posterior$`b_r_Intercept`)
+theta <- mean(posterior$`b_theta_Intercept`)
+
+od_seq <- seq(0, 0.2, by = 0.001)
+dilution_curve <- r * (1 - (od_seq / K)^theta)
+curve_data <- data.frame(od_blanked = od_seq, dilution_rate = dilution_curve) %>%
+  filter(dilution_rate > 0)
+
+p3 <- ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate)) +
+  labs(
+    x = "Density",
+    y = "Per capita growth"
+  ) +
+  geom_line(
+    data = curve_data,
+    aes(x = od_blanked, y = dilution_rate),
+    color = "#185266", size = 3) +
+  geom_point(colour = "black", size = 5, alpha = 0.15) + 
+  theme_light(base_size = 25)  # Increased base text size
+
+
+
+
+# Combine the plots
+right_column <- plot_grid(p2, p3, ncol = 1, rel_heights = c(1, 1))
+plot_grid(
+  p1, right_column,
+  nrow = 1,
+  rel_widths = c(2, 1)  
+)
+
+
+```
+
+
+
+
+
+
+
+
+
+#### 2. Flipped power function
+
+
+#### 3. Power function
+
+
 
