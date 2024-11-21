@@ -723,6 +723,115 @@ ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate)) +
 
 ### Flipped power model 
 
+The power model seems like a good model for density dependence.. So, if we are fitting the inverted data, should we use the flipped power model instead? 
+
+$$x\ =\ \left(\frac{y-c}{a}\right)^{B}$$
+
+^ but now change x and y to change how we model things. Interesting to see how the parameter estimates will change. 
+
+
+$$y\ =\ \left(\frac{x-c}{a}\right)^{B}$$
+
+```{r, include = F}
+
+f_power_model <- brm(
+  # Model formula (parameters to fit are identified and nl flag is set)
+  bf(od_blanked ~ ((dilution_rate - c)/a)^b, 
+    a ~ 1,  
+    b ~ 1,  
+    c ~ 1,  
+    nl = TRUE
+  ),
+  # Data to use
+  data = chemo_dd_eqs_av,
+  
+  # Errors are gamma with identity link function
+  family = Gamma(link = "identity"),
+  
+  # Priors
+  prior = c(
+    prior(uniform(-50, 0), nlpar = "a", lb = -50, ub = 0),
+    prior(uniform(0, 2), nlpar = "b", lb = -2, ub = 2),
+    prior(uniform(0.5, 1.5), nlpar = "c", lb = 0.5, ub = 1.5)
+  ),
+  
+  # Hyperparameters
+  iter = 3000, 
+  warmup = 1500, 
+  chains = 4,
+  control = list(adapt_delta = 0.9, max_treedepth = 10)
+)
+
+```
+
+```{r}
+summary(f_power_model)
+plot(f_power_model)
+conditional_effects(f_power_model)
+pairs(f_power_model)
+pp_check(f_power_model, type = "scatter_avg")
+```
+
+```{r}
+# Extract predictions from the model
+conditional_effects_data <- conditional_effects(f_power_model)
+predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
+
+# Create the plot with the original data points and model predictions
+ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate)) +
+  geom_point() +
+  labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
+       color = "experiment") +
+  
+  # brms model predictions
+  geom_line(data = predicted_data, aes(y = estimate__, 
+                                       x = dilution_rate)) +  
+  geom_ribbon(data = predicted_data, aes(ymin = lower__, 
+                                         ymax = upper__, 
+                                         x = dilution_rate), 
+              alpha = 0.2, inherit.aes = FALSE) + 
+   
+  theme_minimal()
+```
+
+
+```{r, fig.height=3, fig.width=3}
+
+# Power model with parameters estimated from above
+a <- -23.92  
+b <- 0.57  
+c <- 1.09  
+od_seq <- seq(0, 0.25, by = 0.001)
+dilution_curve <- a * od_seq^(1/b) + c
+curve_data <- data.frame(od_blanked = od_seq, 
+                         dilution_rate = dilution_curve)
+curve_data <- curve_data %>% filter(dilution_rate > 0)
+
+
+# Density-dependent plot
+ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate)) +
+  geom_point() +
+  labs(x = "OD", y = "Dilution rate (ml/hour/ml)", 
+       color = "experiment") +
+  
+  # theta-logistic
+  geom_line(data = curve_data, aes(x = od_blanked, y = dilution_rate), 
+              color = "blue", size = 1) +
+  
+  theme_minimal()
+```
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
