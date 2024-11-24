@@ -1358,9 +1358,9 @@ plot_grid(
 )
 
 
+
+
 ```
-
-
 
 
 
@@ -1663,4 +1663,16 @@ plot_grid(
 )
 
 
+```
+
+```{r}
+# for andrew 
+
+#pdf(width = 18, # The width of the plot in inches
+#    height = 9) # The height of the plot in inches
+
+#plot_grid(p3, p1, nrow = 1, labels = c('A', 'B'), scale = 0.95,
+#          label_size = 24)
+
+#dev.off()
 ```
