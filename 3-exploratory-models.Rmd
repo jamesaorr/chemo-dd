@@ -1820,5 +1820,158 @@ plot_grid(
 )
 ```
 
+### Flipped theta logistic to every subset of data
+
+```{r}
+# Function to analyze dataset and save results as objects
+analyze_dataset2 <- function(dataset_name) {
+  # Load dataset dynamically
+  dataset <- get(dataset_name)
+  
+  # Run the model
+  ft_model <- brm(
+    bf(od_blanked ~ K * (1 - (dilution_rate / r)) ^ (1 / theta),
+       K ~ 1, 
+       r ~ 1, 
+       theta ~ 1, 
+       nl = TRUE
+       ),
+    data = dataset,
+    family = Gamma(link = "identity"), 
+    prior = c(
+      prior(uniform(0.9, 1.2), nlpar = "r", lb = 0.9, ub = 1.2),  
+      prior(uniform(0.10, 0.25), nlpar = "K", lb = 0.10, ub = 0.25), 
+      prior(uniform(-0.5, 5), nlpar = "theta", lb = -0.5, ub = 5) 
+      ),
+    iter = 3000, warmup = 1500, chains = 4,
+    control = list(adapt_delta = 0.9,
+                   max_treedepth = 10),
+    )
+
+  
+  # Save summary as an object
+  model_summary <- summary(ft_model)
+  
+  # Generate pp_check plot
+  pp_plot <- pp_check(ft_model, type = "scatter_avg")
+  
+  # Generate conditional effects plot
+  conditional_effects_data <- conditional_effects(ft_model)
+  predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
+  
+  p1 <- ggplot(dataset, aes(y = od_blanked, x = dilution_rate)) +
+    labs(
+      y = "", x = "") +
+  
+    geom_ribbon(
+      data = predicted_data,
+      aes(ymin = lower__, ymax = upper__, x = dilution_rate),
+      alpha = 0.4, inherit.aes = FALSE, fill = "#3BDCB4", color = NA
+    ) +
+    
+    geom_line(data = predicted_data, 
+              aes(y = estimate__, x = dilution_rate), 
+              color = "#185266", size = 3) +
+    
+    geom_point(colour = "#185266", size = 5) +
+    
+    theme_light(base_size = 25) 
+  
+  ################### theta estimate ############################
+  posterior <- posterior_samples(ft_model)
+  theta_samples <- posterior$`b_theta_Intercept`
+  theta_mean <- posterior_summary(ft_model)["b_theta_Intercept", 1]
+  theta_low <- posterior_summary(ft_model)["b_theta_Intercept", 3]
+  theta_high <- posterior_summary(ft_model)["b_theta_Intercept", 4]
+  
+  # Calculate density for posterior samples
+  density_data <- density(theta_samples)
+  density_df <- data.frame(
+    theta = density_data$x,
+    density = density_data$y) 
+  
+  theta_density_at_mean <- approx(density_data$x, density_data$y, xout = theta_mean)$y
+  
+  p2 <- ggplot(density_df, aes(x = theta, y = density)) +
+    geom_line(color = "#185266", size = 2) +
+    geom_area(
+      data = density_df %>%
+        filter(theta >= theta_low & theta <= theta_high),
+      aes(x = theta, y = density),
+      fill = "#3BDCB4", alpha = 0.4) +
+    geom_segment(
+      aes(x = theta_mean, xend = theta_mean, 
+          y = 0, yend = theta_density_at_mean),
+      color = "#185266", size = 2) +
+    labs(
+      x = expression(theta),
+      y = "Frequency"
+    ) +
+    geom_vline(xintercept = 1, color = "gray80", size = 2, linetype = 2) +
+    scale_x_log10(
+      limits = c(0.25, 4),                # Set range of x-axis
+      breaks = c(0.25, 0.5, 1, 2, 4)     # Logarithmic breaks
+    ) +
+    theme_light(base_size = 25) 
+  
+    
+  # Return all results as a list
+  return(list(
+    summary = model_summary,
+    pp_check_plot = pp_plot,
+    fit = p1,
+    posteriors = p2
+  ))
+}
+
+```
+
+Run the function for each dataset and store everything in a list
+
+```{r, include=FALSE}
+# List of dataset names
+datasets <- c("chemo_dd_eqs_av", "chemo_dd_eqs_last", "chemo_dd_eqs_first", 
+              "chemo_dd_eqs_day1", "chemo_dd_eqs_day2", "chemo_dd_eqs_day3", 
+              "chemo_dd_eqs_day4")
+
+# Run the function for all datasets and save results in a named list
+results <- lapply(datasets, function(name) {
+  analyze_dataset2(name)
+})
+names(results) <- datasets
+
+# Access example outputs:
+# - Model summary for `chemo_dd_eqs_av`: results[[1]]$summary
+
+```
+
+
+```{r, fig.height=12, fig.width=36}
+
+# Extract "fit" and "posteriors" plots for each dataset
+fit_plots <- lapply(results, function(res) res$fit)
+posteriors_plots <- lapply(results, function(res) res$posteriors)
+
+
+# Create plot grids for the top (fit) and bottom (posteriors) rows
+fit_row <- plot_grid(plotlist = fit_plots, ncol = 7, scale = 0.9,
+                     labels = datasets, label_size = 16, label_x = 0.15)
+posteriors_row <- plot_grid(plotlist = posteriors_plots, ncol = 7, scale = 0.9)
+
+# Combine rows with titles
+plot_grid(
+  fit_row, posteriors_row, 
+  ncol = 1
+)
+```
+
+
+<br>
+<br>
+<br>
+<br>
+<br>
+
+
 
 
