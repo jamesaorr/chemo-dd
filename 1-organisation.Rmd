@@ -191,7 +191,6 @@ outflow <- outflow %>%
 
 
 #plot(outflow$inflow_volume, outflow$inflow_setting)
-
 ```
 
 ## OD data
@@ -402,7 +401,7 @@ Next, create "final" datasets that follow different filtering procedures outline
 chemo_dd_eqs_av <- chemo_dd_eqs %>%
   select(-c(sample)) %>%
   group_by(experiment_replicate, ID, inflow_setting, 
-           outflow_per_hour_mean, dilution_rate) %>%
+           outflow_per_hour_mean, dilution_rate, dilution_rate_2) %>%
   summarise(od_blanked = mean(od_blanked, na.rm = TRUE),
             cfu_ul = mean(cfu_ul, na.rm = TRUE),
             n = n(),
@@ -413,7 +412,7 @@ chemo_dd_eqs_av <- chemo_dd_eqs %>%
 chemo_dd_eqs_last <- chemo_dd_eqs %>%
   select(-c(sample)) %>%
   group_by(experiment_replicate, ID, inflow_setting, 
-           outflow_per_hour_mean, dilution_rate) %>%
+           outflow_per_hour_mean, dilution_rate, dilution_rate_2) %>%
   slice_max(day, with_ties = FALSE) %>%
   mutate(n = 1)
 
@@ -422,7 +421,7 @@ chemo_dd_eqs_last <- chemo_dd_eqs %>%
 chemo_dd_eqs_first <- chemo_dd_eqs %>%
   select(-c(sample)) %>%
   group_by(experiment_replicate, ID, inflow_setting, 
-           outflow_per_hour_mean, dilution_rate) %>%
+           outflow_per_hour_mean, dilution_rate, dilution_rate_2) %>%
   slice_min(day, with_ties = FALSE) %>%
   mutate(n = 1)
 

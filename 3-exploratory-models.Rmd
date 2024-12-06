@@ -1969,6 +1969,156 @@ plot_grid(
 <br>
 <br>
 <br>
+
+### Dilution rates calculated with max volume 
+
+```{r, include = F}
+
+power_model <- brm(
+  # Model formula (parameters to fit are identified and nl flag is set)
+  bf(od_blanked ~ a * (dilution_rate_2^(1/b)) + c, 
+    a ~ 1,  
+    b ~ 1,  
+    c ~ 1,  
+    nl = TRUE
+  ),
+  # Data to use
+  data = chemo_dd_eqs_av,
+  
+  # Errors are gamma with identity link function
+  family = Gamma(link = "identity"),
+  
+  # Priors
+  prior = c(
+    prior(uniform(-5, 5), nlpar = "a", lb = -5, ub = 5),
+    prior(uniform(0, 2), nlpar = "b", lb = 0, ub = 2),
+    prior(uniform(0, 2), nlpar = "c", lb = 0, ub = 2)
+  ),
+  
+  # Hyperparameters
+  iter = 3000, 
+  warmup = 1500, 
+  chains = 4,
+  control = list(adapt_delta = 0.9, max_treedepth = 10)
+)
+
+```
+
+```{r}
+summary(power_model)
+plot(power_model)
+conditional_effects(power_model)
+pairs(power_model)
+pp_check(power_model, type = "scatter_avg")
+```
+
+```{r, fig.height=4, fig.height=12}
+
+################### model predictions ############################
+conditional_effects_data <- conditional_effects(power_model)
+predicted_data <- as.data.frame(conditional_effects_data$dilution_rate_2)
+
+p1 <- ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate_2)) +
+  labs(
+    y = "Optical Density", x = "Dilution rate (ml/hour/ml)") +
+
+  geom_ribbon(
+    data = predicted_data,
+    aes(ymin = lower__, ymax = upper__, x = dilution_rate_2),
+    alpha = 0.4, inherit.aes = FALSE, fill = "#3BDCB4", color = NA
+  ) +
+  
+  geom_line(data = predicted_data, 
+            aes(y = estimate__, x = dilution_rate_2), 
+            color = "#185266", size = 3) +
+  
+  geom_point(colour = "#185266", size = 5) +
+  
+  theme_light(base_size = 25) 
+
+
+
+################### theta estimate ############################
+posterior <- posterior_samples(power_model)
+theta_samples <- posterior$`b_b_Intercept`
+theta_mean <- posterior_summary(power_model)["b_b_Intercept", 1]
+theta_low <- posterior_summary(power_model)["b_b_Intercept", 3]
+theta_high <- posterior_summary(power_model)["b_b_Intercept", 4]
+
+# Calculate density for posterior samples
+density_data <- density(theta_samples)
+density_df <- data.frame(
+  theta = density_data$x,
+  density = density_data$y) 
+
+theta_density_at_mean <- approx(density_data$x, density_data$y, xout = theta_mean)$y
+
+p2 <- ggplot(density_df, aes(x = theta, y = density)) +
+  geom_line(color = "#185266", size = 2) +
+  geom_area(
+    data = density_df %>%
+      filter(theta >= theta_low & theta <= theta_high),
+    aes(x = theta, y = density),
+    fill = "#3BDCB4", alpha = 0.4) +
+  geom_segment(
+    aes(x = theta_mean, xend = theta_mean, 
+        y = 0, yend = theta_density_at_mean),
+    color = "#185266", size = 2) +
+  labs(
+    x = expression(beta),
+    y = "Frequency"
+  ) +
+  geom_vline(xintercept = 1, color = "gray80", size = 2, linetype = 2) +
+  scale_x_log10(
+    limits = c(0.15, 6.66),                # Set range of x-axis
+    breaks = c(0.2, 0.5, 1, 2, 5)     # Logarithmic breaks
+  ) +
+  theme_light(base_size = 25) 
+
+
+################### density dependence ############################
+a <- mean(posterior$`b_a_Intercept`)
+c <- mean(posterior$`b_c_Intercept`)
+b <- mean(posterior$`b_b_Intercept`)
+
+od_seq <- seq(0, 0.2, by = 0.00001)
+dilution_curve <- ((od_seq - c) / a) ^ b
+
+curve_data <- data.frame(od_blanked = od_seq, dilution_rate_2 = dilution_curve) %>%
+  filter(dilution_rate_2 > 0)
+
+p3 <- ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate_2)) +
+  labs(
+    x = "Density",
+    y = "Per capita growth"
+  ) +
+  geom_line(
+    data = curve_data,
+    aes(x = od_blanked, y = dilution_rate_2),
+    color = "#185266", size = 3) +
+  geom_point(colour = "black", size = 5, alpha = 0.15) + 
+  theme_light(base_size = 25)  # Increased base text size
+
+
+
+
+# Combine the plots
+right_column <- plot_grid(p2, p3, ncol = 1, rel_heights = c(1, 1), 
+                          labels = c('B', 'C'),
+                          label_size = 24,
+                          scale = 0.95)
+plot_grid(
+  p1, right_column,
+  nrow = 1,
+  rel_widths = c(2, 1),
+  labels = c('A', ''), 
+  label_size = 24,
+  scale = 0.95
+)
+
+
+```
+
 <br>
 <br>
 
