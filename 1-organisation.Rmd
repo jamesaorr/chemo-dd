@@ -173,6 +173,27 @@ outflow <- outflow %>%
   rename(ID = bioreactor)
 ```
 
+Need to think carefully about whether 21ml is the correct volume to use for the chemostats. In theory this is what we want, but because we're on 20 minute cycles large volumes of liquid come into the reactors for the high dilution rates and sit there until the outflow pumps run. If dilution rate is calculated with minimum volume of chemostat then 21ml is used for all. If it is calculated with maximum volume of chemostat then it will be 21ml + volume for a given inflow setting. Using the minimum or the maximum could both be feasible options - although the minimum is probably the more parsimonious. Low inflow settings won't have different dilution rates for the max or the min volume used, but the high inflow settings will all have higher volumes and therfore lower dilution rates. For now, we can present the min and the max - extreme ranges of possible results. Some sort of mean (time averaged) volume is probably the most sensible approach - but we don't know the exact times and these varied quite a bit. 
+
+First step is to calculate the volumes associated with an inflow setting. I can use the outflow volumes to work this out. Because inflow pumps run every 20 minutes, they run 72 times a day. Therefore daily outflow volume divided by 72 will be the volume of water that comes into the chemostats at each inflow cycle. Adding this volume to 21 will give the max liquid volume of the chemostats in a given cycle. 
+
+```{r}
+outflow <- outflow %>%
+  
+  # inflow volume is hourly outflow volume divided by number of inflow cycles (3)
+  mutate(inflow_volume = outflow_per_hour_mean/3) %>%
+  
+  # maximum volume of reactor is 21ml + inflow volume 
+  mutate(max_volume = inflow_volume + 21) %>%
+  
+  # dilution rate based on max volume 
+  mutate(dilution_rate_2 = outflow_per_hour_mean/max_volume)
+
+
+#plot(outflow$inflow_volume, outflow$inflow_setting)
+
+```
+
 ## OD data
 
 Merge dataframes and quick clean up
