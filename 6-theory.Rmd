@@ -8,9 +8,7 @@ output:
 author: "James Orr"
 ---
 
-This notebook uses empirically estimated Monod functions from previous work by Alicia and Andrew to make a prediction for the shape of density dependence of e. coli in chemostats. It is unlikely that the theoretial prediction will align perfectly with the empirical results from the chemostat experiments as these monod functions are estimated from batch cultures. However, we would expect the general shape (concave vs convex) to be the same.
-
-Here, I'll first describe the model, and then write a function to run simulations of the abrams approach for density dependence (manipulating mortality/harvest rate), and then I'll use the parameters from Alicia and Andrew's work to make a prediction for our experiment. 
+This notebook uses empirically estimated Monod functions from previous work by Alicia and Andrew to make a prediction for the shape of density dependence of E. coli in chemostats. It is unlikely that the theoretical prediction will align perfectly with the empirical results from the chemostat experiments as these Monod functions are estimated from batch cultures. However, we would expect the general shape (concave vs convex) to be the same.
 
 ### Set up environment 
 
@@ -19,6 +17,7 @@ Load packages and clear environment
 ```{r}
 #### Required packages
 library(tidyverse)  
+library(deSolve)
 
 #### Clear  environment 
 rm(list = ls())   
@@ -26,6 +25,180 @@ rm(list = ls())
 
 ### Consumer-resource model 
 
+The model we'll use is a consumer-resource model for one resource (glucose) and one consumer (E. coli) where the resource uptake function is a Monod function and the resource supply function is a chemostat model. 
+
+
+$$
+\frac{dN}{dt}  = N( \frac{\mu_{max}R}{k + R} -m) \\
+\frac{dR}{dt} = d(S - R) - \frac{\mu_{max}R}{k + R}QN
+$$
+$N$ = density of consumers
+
+$R$ = density of resources
+
+$\mu_{max}$ = maximum growth rate 
+
+$k$ = half saturation constant
+
+$m$ = mortality rate 
+
+$d$ = dilution rate
+
+$S$ = density of resources in supply
+
+$Q$ = resource quota (how many resources are in one consumer)
+
+We set $m = d$ as we assume dilution is the only source of consumer mortality for us. 
+
+We have empirical estimates for $\mu_{max}$, $k$, and $Q$. We know the dilution rates we used and we are simulating $N$ and $R$. That just leaves $S$ - the supply resource concentration. We used 0.05% glucose - so we're pretty sure $S$ is just 0.05.
+
+***The Q that I have estimates for is actually the yield (1/q)***
+
+
+### Abrams approach simulation
+
+First specify the consumer resource model 
+
+```{r}
+consumer_resource_model <- function(t, state, params) {
+  with(as.list(c(state, params)), {
+    
+    # Type II functional response
+    #dN_dt <- N * ( (mu_max * R / (k + R)) - d )
+    #dR_dt <- (d * (S - R)) - ( (mu_max * R / (k + R)) * Q * N )
+
+    # Type I functional response
+    dN_dt <- N * (mu_max * R - d)
+    dR_dt <- (d * (S - R)) - (mu_max * R * Q * N )
+
+    # Return the derivatives
+    list(c(dN_dt, dR_dt))
+  })
+}
+```
+
+Check that the Monod function looks right 
+
+```{r, fig.width=3, fig.height=3}
+
+mu_max <- exp(-0.383)
+k <- exp(-7.86)
+
+# Generate a range of resource concentrations (R)
+R <- seq(0, 0.01, by = 0.00001)
+
+# Calculate growth rate (mu) using the Monod function
+mu <- mu_max * R / (k + R)
+
+# Create a data frame for plotting
+monod_data <- data.frame(R = R, mu = mu)
+
+ggplot(data = monod_data, aes(x = R, y = mu)) +
+  geom_line() +  
+  labs(
+    x = "R",
+    y = "Growth Rate") +
+  ylim(0, 1) +
+  theme_minimal() 
+
+```
+
+
+Run model for a given dilution rate
+
+```{r}
+### set initial conditions and paramaters
+t <- seq(0, 1000, 50)
+initial_conditions <- c(N = 0.001, R = 0.001)
+
+# Parameters
+params <- list(
+  mu_max = exp(-0.383)*20,  # Maximum growth rate
+  k = exp(-7.86),           # Half-saturation constant
+  S = 0.05,                 # Resource supply concentration
+  Q = 1/exp(1.33),          # Resource quota
+  d = 0.01
+)
+
+# Run model 
+output <- ode(
+    y = initial_conditions,
+    times = t,
+    func = consumer_resource_model,
+    parms = params
+  )
+
+# Convert output to a data frame
+output_df <- as.data.frame(output)
+
+ggplot(output_df, aes(x = time)) +
+  geom_line(aes(y = N, color = "N")) +
+  geom_line(aes(y = R, color = "R")) +
+  theme_minimal() 
+
+tail(output_df$N, 1)
+```
+
+
+Then run a loop over many dilution rates
+
+```{r}
+### set initial conditions and paramaters
+t <- seq(0, 1000, 50)
+initial_conditions <- c(N = 0.001, R = 0.001)
+
+# Fixed parameters
+params_fixed <- list(
+  mu_max = exp(-0.383)*20,     # Maximum growth rate
+  #k = exp(-7.86),           # Half-saturation constant
+  S = 0.05,                 # Resource supply concentration
+  Q = 1/exp(1.33)           # Resource quota
+)
+
+# Create a sequence of dilution rates
+dil_values <- seq(0.01, exp(-0.383), by = 0.0005)
+
+# Initialize an empty data frame to store results
+results <- data.frame(dil = numeric(), final_N = numeric())
+
+# Loop over dilution rates
+for (dil in dil_values) {
+  # Update parameters with the current dilution rate
+  params <- c(params_fixed, d = dil)
+  
+  # Solve the model
+  output <- ode(
+    y = initial_conditions,
+    times = t,
+    func = consumer_resource_model,
+    parms = params
+  )
+  
+  # Convert output to a data frame
+  output_df <- as.data.frame(output)
+  
+  # Get the final value of N
+  final_N <- tail(output_df$N, 1)
+  
+  # Save the dilution rate and final_N to results
+  results <- rbind(results, data.frame(dil = dil, final_N = final_N))
+}
+
+```
+
+Plot results 
+
+```{r, fig.width=4, fig.height=4}
+
+ggplot(data = results, aes(x = dil, y = final_N)) +
+  geom_line() + 
+  labs(
+    x = "Dilution Rate",
+    y = "Equilibrium Density") +
+  #xlim(0.6, 0.7) +
+  #ylim(0, 0.005) +
+  theme_minimal()
+```
 
 
 
