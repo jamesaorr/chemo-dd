@@ -1,0 +1,31 @@
+---
+title: "chemo-dd"
+subtitle: "Theory"
+output: 
+  html_notebook:
+    toc: true
+    toc_depth: 4
+author: "James Orr"
+---
+
+This notebook uses empirically estimated Monod functions from previous work by Alicia and Andrew to make a prediction for the shape of density dependence of e. coli in chemostats. It is unlikely that the theoretial prediction will align perfectly with the empirical results from the chemostat experiments as these monod functions are estimated from batch cultures. However, we would expect the general shape (concave vs convex) to be the same.
+
+Here, I'll first describe the model, and then write a function to run simulations of the abrams approach for density dependence (manipulating mortality/harvest rate), and then I'll use the parameters from Alicia and Andrew's work to make a prediction for our experiment. 
+
+### Set up environment 
+
+Load packages and clear environment 
+
+```{r}
+#### Required packages
+library(tidyverse)  
+
+#### Clear  environment 
+rm(list = ls())   
+```
+
+### Consumer-resource model 
+
+
+
+

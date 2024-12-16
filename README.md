@@ -13,3 +13,5 @@ KD performed dd2, dd3, and dd4. JO and AW performed dd6 and dd7.
 `4-plots.Rmd` is an R notebook that uses the processed data to produce the plots used in the manuscript and supporting materials. 
 
 `5-models.Rmd` is an R notebook that uses the processed data to run the models described in the manuscript and supporting materials. 
+
+`6-theory.Rmd` is an R notebook that uses previous data from work in the Letten lab to make theoretical predictions for the shape of density dependence.
