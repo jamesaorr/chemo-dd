@@ -48,29 +48,36 @@ $S$ = density of resources in supply
 
 $Q$ = resource quota (how many resources are in one consumer)
 
-We set $m = d$ as we assume dilution is the only source of consumer mortality for us. 
+We set $m = d$ as we assume dilution is the only source of consumer mortality for us. **This is actually a very important difference compared to chemostat models considered by Abrams and others (see final section of notebook)**. 
 
-We have empirical estimates for $\mu_{max}$, $k$, and $Q$. We know the dilution rates we used and we are simulating $N$ and $R$. That just leaves $S$ - the supply resource concentration. We used 0.05% glucose - so we're pretty sure $S$ is just 0.05.
-
-***The Q that I have estimates for is actually the yield (1/q)***
+We have empirical estimates for $\mu_{max}$, $k$, and $Q$ *(note that we have an estimate for yield, which is the inverse of the quota)*. We know the range of dilution rates we used and we are simulating $N$ and $R$. That just leaves $S$ - the supply resource concentration. We used 0.05% glucose - so $S$ is just 0.05. The empirically estimated parameters are in terms of OD for $N$ and are for the same units for dilution rate and glucose, so the predictions should in theory align with our results. 
 
 
 ### Abrams approach simulation
 
-First specify the consumer resource model 
+First specify the consumer resource model (alternative models are there too as we used these to confirm that the simulations were working as expected).
+
 
 ```{r}
 consumer_resource_model <- function(t, state, params) {
   with(as.list(c(state, params)), {
     
     # Type II functional response
-    #dN_dt <- N * ( (mu_max * R / (k + R)) - d )
-    #dR_dt <- (d * (S - R)) - ( (mu_max * R / (k + R)) * Q * N )
+    dN_dt <- N * ( (mu_max * R / (k + R)) - d )
+    dR_dt <- (d * (S - R)) - ( (mu_max * R / (k + R)) * Q * N )
 
     # Type I functional response
-    dN_dt <- N * (mu_max * R - d)
-    dR_dt <- (d * (S - R)) - (mu_max * R * Q * N )
+    #dN_dt <- N * (mu_max * R - d - m)
+    #dR_dt <- (d * (S - R)) - (mu_max * R * Q * N )
 
+    # alternative chemo model with type 1
+    #dN_dt <- N * (mu_max * R - d)
+    #dR_dt <- I - (E * R) - (mu_max * R * Q * N)
+    
+    # logistic growth and type 1
+    #dN_dt <- N * (mu_max * R - d)
+    #dR_dt <- r*R*(1 - R/K) - (mu_max * R * Q * N)
+    
     # Return the derivatives
     list(c(dN_dt, dR_dt))
   })
@@ -103,21 +110,24 @@ ggplot(data = monod_data, aes(x = R, y = mu)) +
 
 ```
 
-
 Run model for a given dilution rate
 
 ```{r}
 ### set initial conditions and paramaters
 t <- seq(0, 1000, 50)
-initial_conditions <- c(N = 0.001, R = 0.001)
+initial_conditions <- c(N = 0.01, R = 0.01)
 
 # Parameters
 params <- list(
-  mu_max = exp(-0.383)*20,  # Maximum growth rate
-  k = exp(-7.86),           # Half-saturation constant
-  S = 0.05,                 # Resource supply concentration
-  Q = 1/exp(1.33),          # Resource quota
-  d = 0.01
+  mu_max = exp(-0.383),  
+  k = exp(-7.86),          
+  S = 0.05,            
+  Q = 1/exp(1.33),        
+  d = 0.5
+  #r = 1,
+  #K = 100,
+  #I = 0.01, 
+  #E = 0.01
 )
 
 # Run model 
@@ -136,27 +146,30 @@ ggplot(output_df, aes(x = time)) +
   geom_line(aes(y = R, color = "R")) +
   theme_minimal() 
 
-tail(output_df$N, 1)
+#tail(output_df$N, 1)
 ```
-
 
 Then run a loop over many dilution rates
 
 ```{r}
 ### set initial conditions and paramaters
-t <- seq(0, 1000, 50)
-initial_conditions <- c(N = 0.001, R = 0.001)
+t <- seq(0, 10000, 100)
+initial_conditions <- c(N = 0.01, R = 0.01)
 
 # Fixed parameters
 params_fixed <- list(
-  mu_max = exp(-0.383)*20,     # Maximum growth rate
-  #k = exp(-7.86),           # Half-saturation constant
-  S = 0.05,                 # Resource supply concentration
-  Q = 1/exp(1.33)           # Resource quota
-)
+  mu_max = exp(-0.383),      
+  k = exp(-7.86),         
+  S = 0.05,                 
+  Q = 1/exp(1.33)        
+  #I = 0.01,
+  #E = 0.01#,
+  #r = 1,
+  #K = 10
+  )
 
 # Create a sequence of dilution rates
-dil_values <- seq(0.01, exp(-0.383), by = 0.0005)
+dil_values <- seq(0.001, exp(-0.383), by = 0.0005)
 
 # Initialize an empty data frame to store results
 results <- data.frame(dil = numeric(), final_N = numeric())
@@ -200,5 +213,14 @@ ggplot(data = results, aes(x = dil, y = final_N)) +
   theme_minimal()
 ```
 
+Save theoretical prediction 
 
+```{r}
+write.csv(results, "data/theory/prediction.csv", row.names = F)
+```
+
+
+### Insights from the simulations
+
+To confirm that our simulations were doing what we expected, we ran them with a number of other consumer-resource models including type I functional responses and logistic resource supply function. We were surprised to find that our chemostat model (where $m$ of consumers is assumed to be the same as $d$ of resources) had linear density dependence for consumers with type I functional responses - we had thought that chemostat conditions give sublinear growth. It turns out that that is only true when $m$ and $d$ are separate. In Abrams "chemostat" models, the consumer is not impacted by the dilution rate - it is like a fish in a stream or plankton in a chemostat with filters. This isn't what true chemostats in microbial are - the consumers are also diluted out of the system, that is their mortality. Doesn't really change our results, but does show how chemostat conditions don't always bias towards sublinear density dependence - only when dilution and mortality are separate. 
 
