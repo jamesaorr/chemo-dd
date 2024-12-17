@@ -216,7 +216,7 @@ ggplot(data = results, aes(x = dil, y = final_N)) +
 Save theoretical prediction 
 
 ```{r}
-write.csv(results, "data/theory/prediction.csv", row.names = F)
+#write.csv(results, "data/theory/prediction.csv", row.names = F)
 ```
 
 

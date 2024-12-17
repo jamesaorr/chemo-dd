@@ -37,6 +37,8 @@ chemo_dd_eqs_day1 <- read.csv("data/processed/equilibrium_samples_day1.csv")
 chemo_dd_eqs_day2 <- read.csv("data/processed/equilibrium_samples_day2.csv")
 chemo_dd_eqs_day3 <- read.csv("data/processed/equilibrium_samples_day3.csv")
 chemo_dd_eqs_day4 <- read.csv("data/processed/equilibrium_samples_day4.csv")
+
+theory_predictions <- read.csv("data/theory/prediction.csv")
 ```
 
 For the exploratory analyses here I'll use `chemo_dd_eqs_av`, which we believe is the most sensible way of selecting equilibrium points. Once our modelling framework is decided, we'll run the analyses with all the different "final" datasets. 
@@ -1638,10 +1640,17 @@ p3 <- ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate)) +
     x = "Density",
     y = "Per capita growth"
   ) +
+  
   geom_line(
     data = curve_data,
     aes(x = od_blanked, y = dilution_rate),
     color = "#185266", size = 3) +
+    
+  geom_line(
+    data = theory_predictions,
+    aes(x = final_N, y = dil),
+    color = "#3BDCB4", size = 3) +
+  
   geom_point(colour = "black", size = 5, alpha = 0.15) + 
   theme_light(base_size = 25)  # Increased base text size
 
@@ -2096,6 +2105,12 @@ p3 <- ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate_2)) +
     data = curve_data,
     aes(x = od_blanked, y = dilution_rate_2),
     color = "#185266", size = 3) +
+  
+  geom_line(
+    data = theory_predictions,
+    aes(x = final_N, y = dil),
+    color = "#3BDCB4", size = 3) +
+  
   geom_point(colour = "black", size = 5, alpha = 0.15) + 
   theme_light(base_size = 25)  # Increased base text size
 
