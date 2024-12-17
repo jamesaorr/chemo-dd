@@ -1580,6 +1580,11 @@ p1 <- ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate)) +
             aes(y = estimate__, x = dilution_rate), 
             color = "#185266", size = 3) +
   
+  geom_line(
+    data = theory_predictions,
+    aes(y = final_N, x = dil),
+    color = "#3BDCB4", size = 3) +
+  
   geom_point(colour = "#185266", size = 5) +
   
   theme_light(base_size = 25) 
@@ -2040,6 +2045,12 @@ p1 <- ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate_2)) +
   geom_line(data = predicted_data, 
             aes(y = estimate__, x = dilution_rate_2), 
             color = "#185266", size = 3) +
+  
+  geom_line(
+    data = theory_predictions,
+    aes(y = final_N, x = dil),
+    color = "#3BDCB4", size = 3) +
+  
   
   geom_point(colour = "#185266", size = 5) +
   
