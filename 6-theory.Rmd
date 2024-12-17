@@ -66,11 +66,11 @@ consumer_resource_model <- function(t, state, params) {
     dN_dt <- N * ( (mu_max * R / (k + R)) - d )
     dR_dt <- (d * (S - R)) - ( (mu_max * R / (k + R)) * Q * N )
 
-    # Type I functional response
+    # Type I functional response (need to manipulate m not d)
     #dN_dt <- N * (mu_max * R - d - m)
     #dR_dt <- (d * (S - R)) - (mu_max * R * Q * N )
 
-    # alternative chemo model with type 1
+    # alternative chemo model with type 1 (consumer not diluted)
     #dN_dt <- N * (mu_max * R - d)
     #dR_dt <- I - (E * R) - (mu_max * R * Q * N)
     
@@ -123,7 +123,8 @@ params <- list(
   k = exp(-7.86),          
   S = 0.05,            
   Q = 1/exp(1.33),        
-  d = 0.5
+  d = 0.1
+  #m = 0
   #r = 1,
   #K = 100,
   #I = 0.01, 
@@ -161,7 +162,8 @@ params_fixed <- list(
   mu_max = exp(-0.383),      
   k = exp(-7.86),         
   S = 0.05,                 
-  Q = 1/exp(1.33)        
+  Q = 1/exp(1.33)
+  #d = 0.1
   #I = 0.01,
   #E = 0.01#,
   #r = 1,
@@ -222,5 +224,42 @@ Save theoretical prediction
 
 ### Insights from the simulations
 
-To confirm that our simulations were doing what we expected, we ran them with a number of other consumer-resource models including type I functional responses and logistic resource supply function. We were surprised to find that our chemostat model (where $m$ of consumers is assumed to be the same as $d$ of resources) had linear density dependence for consumers with type I functional responses - we had thought that chemostat conditions give sublinear growth. It turns out that that is only true when $m$ and $d$ are separate. In Abrams "chemostat" models, the consumer is not impacted by the dilution rate - it is like a fish in a stream or plankton in a chemostat with filters. This isn't what true chemostats in microbial are - the consumers are also diluted out of the system, that is their mortality. Doesn't really change our results, but does show how chemostat conditions don't always bias towards sublinear density dependence - only when dilution and mortality are separate. 
+To confirm that our simulations were doing what we expected, we ran them with a number of other consumer-resource models including type I functional responses and logistic resource supply function. We were surprised to find that our chemostat model (where $m$ of consumers is assumed to be the same as $d$ of resources) had linear density dependence for consumers with type I functional responses - we had thought that chemostat conditions give sublinear growth. 
+
+It turns out that that chemostats introducing sublinearity is only true when $m$ and $d$ are separate and when $m$ is manipulated. In Abrams "chemostat" models, the consumer is not impacted by the dilution rate - it is like a fish in a stream or plankton in a chemostat with filters. This isn't what true chemostats in microbial lab work are like - the consumers are also diluted out of the system, that is their mortality. 
+
+All this doesn't change our results, but it does show how chemostat conditions don't always bias towards sublinear density dependence - only when dilution and mortality are separate. 
+
+#### Results for various models
+
+`dN_dt <- N * ( (mu_max * R / (k + R)) - d )`
+
+`dR_dt <- (d * (S - R)) - ( (mu_max * R / (k + R)) * Q * N )`
+
+Model we're using - true chemostat with type II FR (no consumer mortality) - dilution rate is manipulated. Supralinear/concave density dependence.
+
+`dN_dt <- N * (mu_max * R - d - m)`
+
+`dR_dt <- (d * (S - R)) - (mu_max * R * Q * N )`
+
+True chemostat with type I FR
+If m is 0 and d is manipulated, we get linear density dependence (which was surprising - not strictly abrams method as he manipulates consumer mortality only, not dilution rate of entire system)
+If d is fixed and m is manipulated, we get sublinear/convex density dependence (Abrams result)
+
+
+`dN_dt <- N * (mu_max * R - d)`
+
+`dR_dt <- I - (E * R) - (mu_max * R * Q * N)`
+    
+Alternative chemo model (consumer not diluted out of the system) with type 1 FR (consumer not diluted). Here d is mortality of consumer only and it is manipulated. We get sublinear/convex density dependence (Abrams result)
+    
+    
+`dN_dt <- N * (mu_max * R - d)`
+
+`dR_dt <- r*R*(1 - R/K) - (mu_max * R * Q * N)`
+    
+Logistic growth for resource and type 1 FR for consumer. Here d is mortality of consumer only and it is manipulated. We get linear density dependence (Abrams result)
+
+
+
 
