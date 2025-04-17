@@ -1,0 +1,1270 @@
+---
+title: "chemo-dd"
+subtitle: "Main analysis"
+output: 
+  html_notebook:
+    toc: true
+    toc_depth: 3
+author: "James Orr"
+---
+
+This notebook uses empirically estimated Monod functions from previous work by Alicia, Andrew, Jan, and Daniel to make a prediction for the shape of density dependence of E. coli grown under different resource regimes. It is unlikely that the theoretical prediction will align perfectly with the empirical results from the chemostat experiments as these Monod functions are estimated from batch cultures. However, we would expect the general shape (concave vs convex vs nonmonotonic) to be the same.
+
+## Set up environment 
+
+Load packages and clear environment 
+
+```{r}
+#### Required packages
+library(tidyverse)  
+library(deSolve)
+library(cowplot)
+library(bayesplot)
+library(cmdstanr)
+library(posterior)
+
+#### Clear  environment 
+rm(list = ls())   
+
+
+# colours
+
+j_blue <- rgb(0, 112/255, 192/255)
+j_green <- rgb(87/255, 167/255, 46/255)
+```
+
+## Methods
+
+The model we'll use is a consumer-resource model for one resource (glucose) and one consumer (E. coli) where the resource uptake function is a Monod function and the resource supply function is a chemostat model. 
+
+
+$$
+\frac{dN}{dt}  = N( \frac{\mu_{max}R}{k + R} -m) \\
+\frac{dR}{dt} = d(S - R) - \frac{\mu_{max}R}{k + R}QN
+$$
+$N$ = density of consumers
+
+$R$ = density of resources
+
+$\mu_{max}$ = maximum growth rate 
+
+$k$ = half saturation constant
+
+$m$ = mortality rate 
+
+$d$ = dilution rate
+
+$S$ = density of resources in supply
+
+$Q$ = resource quota (how many resources are in one consumer)
+
+
+Define the consumer-resource functions that we'll need 
+
+```{r}
+# Type II functional response and chemostat resources
+cr_tII_chemo <- function(t, state, params) {
+  with(as.list(c(state, params)), {
+    dN_dt <- N * ( (mu_max * R / (k + R)) - m)
+    dR_dt <- (d * (S - R)) - ( (mu_max * R / (k + R)) * Q * N )
+    list(c(dN_dt, dR_dt))
+  })
+}
+
+# Type II functional response and logistic resources
+cr_tII_log <- function(t, state, params) {
+  with(as.list(c(state, params)), {
+    dN_dt <- N * ( (mu_max * R / (k + R)) - m)
+    dR_dt <- (r*R*(1 - R/K)) - ( (mu_max * R / (k + R)) * Q * N )
+    list(c(dN_dt, dR_dt))
+  })
+}
+
+# Type II functional response with no resource growth (events will be used to add pulses)
+cr_tII_pulse <- function(t, state, params) {
+  with(as.list(c(state, params)), {
+    dN_dt <- N * ((mu_max * R / (k + R)) - m)
+    dR_dt <- - ((mu_max * R / (k + R)) * Q * N)
+    list(c(dN_dt, dR_dt))
+  })
+}
+
+# Define pulse event function: adds resource at specific times
+pulse_fun <- function(t, state, parms) {
+  with(as.list(c(state, parms)), {
+    R <- R + pulse_size
+    return(c(N, R))
+  })
+}
+
+```
+
+
+
+
+#### Quantifying density dependence
+
+We used Abrams’ approach – manipulating mortality rate and observing the resulting population densities at equilibrium – to study the density dependence of Escherichia coli (MG1655) growing in chemostats. However, in our system, dilution rate of the chemostat is equal to the mortality rate of the bacteria, as we assume that there is no additional consumer mortality. We therefore experimentally manipulated the dilution rate of the chemostats to control the mortality of the consumer. This deviation from Abrams’ precise approach – dilution rate is not a “neutral” parameter in the sense that it alters resource dynamics as well as consumer mortality – was necessary in our system, but it allowed us to isolate the qualitative effect of consumers’ functional responses on their density dependence. 
+
+You could argue that mortality (and therefore density dependence) was confounded in our experiment, but becasue we know exactly how it was confounded (resource dynamics also influenced by dilution rate), we can make predictions for density dependence under different resource dynamics. 
+
+We can just simulate the consumer resource model under different dilution rates (where m = d) and plot equilibrium abundances against dilution rates. We can also analytically predict the shape of density dependence that we expect to see when d = m. We set the right hand side of the equations to zero and solve for $N$ and $R$. From the consumer equation:
+
+$$R^* = \frac{mK_s}{\mu - m}$$
+From the resource equation:
+
+$$N^* = \frac{dSk}{R^*} + ds - dk - dR^*$$
+Substituting $R^*$ into $N^*$, we get:
+
+$$N^* = \frac{d}{\mu Q} \left [\frac{\mu S}{m}  - \frac{mk}{\mu - m} - k \right ]$$
+```{r}
+# Define the N* function for chemostat resources and type II functional response
+N_star_chemo <- function(d, m, u, S, k, q) {
+  term1 <- (u * S / m)
+  term2 <- (m * k / (u - m))
+  return((d / (u * q)) * (term1 - term2 - k))
+}
+```
+
+
+## Empirical estimates 
+
+We have empirical estimates for $\mu_{max}$, $k$, and $Q$ *(note that we have an estimate for yield, which is the inverse of the quota)*. We know the range of dilution rates we used and we are simulating $N$ and $R$. That just leaves $S$ - the supply resource concentration. We used 0.05% glucose as our base media - so $S$ is just 0.05. The units of resources with our parameterized model are R  = 1 is 10 mg/ml of glucose. The empirically estimated parameters are in terms of OD for $N$, so the predictions should in theory align with our results. 
+
+```{r}
+# read in the model fit
+monod_fit <- readRDS(paste0('daniel/daniel_data/fits/MG1655_MCMC_holling_random.Rdata'))
+
+# extract the posterior draws
+# rename variables to match growth rate of yield times Holling-like uptake rate
+# convert things to Monod growth rate
+# and get rid of the poorly named parameters
+monod_draws <-
+	monod_fit$draws() %>%
+	posterior::rename_variables(
+		log_a = log_mu,
+		log_h = log_k
+	) %>%
+	posterior::mutate_variables(
+		log_mu_max = log_q - log_h,
+		log_Ks = - log_a - log_h,
+		log_affinity = log_mu_max - log_Ks
+	)
+
+
+# print out the summery values of the key variables
+sumparams <- subset_draws(monod_draws, c('log_mu_max', 'log_Ks', 'log_q')) %>% 
+  summary()
+#round(exp(sumparams$mean), 6)
+
+mu_mean <- exp(sumparams$mean)[1]
+k_mean <- exp(sumparams$mean)[2]
+q_mean <- 1/exp(sumparams$mean)[3]
+
+##### q in this model is actually yield, so we need to convert it to quota (inverse)
+
+
+posterior_samples <- monod_draws %>%
+  
+  # from monod_draws, just get the posteriors for the key variables
+  posterior::subset_draws(c("log_mu_max", "log_Ks", "log_q")) %>%
+  
+  # turn the draw object into a standard data frame, with one row per draw
+  posterior::as_draws_df() %>%
+  
+  # backtransform to natural scale and convert yield to quota 
+  mutate(
+    mu_max = exp(log_mu_max),
+    Ks = exp(log_Ks),
+    q = 1/exp(log_q)
+  )
+
+# choose a subset of posteriors to use for predictions to show uncertainty
+set.seed(22)  # for reproducibility
+posterior_subset <- posterior_samples %>% 
+  slice_sample(n = 100) %>%
+  mutate(draw = row_number())  # <-- This ensures `draw` exists
+
+rm(monod_fit, posterior_samples, sumparams, monod_draws)
+```
+
+
+
+Check that the Monod function looks right and run model for a single dilution rates
+
+```{r, fig.height=3, fig.width=6}
+###################################
+#### Plot estimated Monod curve ###
+###################################
+
+# estimate parameters
+mu_max <- mu_mean
+k <- k_mean
+
+# Generate Monod data
+R <- seq(0, 0.05, length.out = 100) 
+mu <- mu_max * R / (k + R)
+monod_data <- data.frame(R = R, mu = mu)
+
+# Create Monod curve for each posterior sample
+posterior_curves <- posterior_subset %>%
+  mutate(draw = row_number()) %>%
+  crossing(R = R) %>%
+  mutate(mu = mu_max * R / (Ks + R))
+
+# Plot Monod function
+p1 <- ggplot() +
+  geom_line(data = posterior_curves, aes(x = R, y = mu, group = draw), color = "blue", alpha = 0.05) +
+  geom_line(data = monod_data, aes(x = R, y = mu), size = 1) +  
+  labs(x = "R", y = "Growth Rate") +
+  ylim(0, 1) +
+  theme_minimal() 
+
+
+
+###################################
+#### Simulate for one dilution ####
+###################################
+
+### set initial conditions and paramaters
+t <- seq(0, 10000, 1)
+initial_conditions <- c(N = 0.01, R = 0.01)
+d <- 0.5          # have to define this first, as m is set to d
+params <- list(
+  mu_max = exp(-0.383),  
+  k = exp(-7.86),          
+  S = 0.05,            
+  Q = 1/exp(1.33),        
+  d = d,
+  m = d
+  )
+
+# Run model 
+output <- ode(
+    y = initial_conditions,
+    times = t,
+    func = cr_tII_chemo,
+    parms = params
+  )
+
+# Convert output to a data frame
+output_df <- as.data.frame(output)
+
+# Plot dynamics
+p2 <- ggplot(output_df, aes(x = time)) +
+  geom_line(aes(y = N, color = "N")) +
+  geom_line(aes(y = R, color = "R")) +
+  labs(color = "") +
+  xlim(0, 50) +
+  theme_minimal() 
+
+# Print final equilbirum
+# tail(output_df$N, 1)
+
+plot_grid(p1, p2)
+
+rm(p1, p2, params, posterior_curves, d, 
+   initial_conditions, k, mu, mu_max, R, t, output, output_df, monod_data)
+```
+
+
+
+
+## Observed density dependence
+
+In silico experiments across a range of dilution rates 
+
+```{r}
+### set initial conditions and parameters
+t <- seq(0, 10000, 100)        # needs to be long enough to get to equilibrium, resolution doens't matter
+initial_conditions <- c(N = 0.01, R = 0.01)
+
+# Fixed parameters
+params_fixed <- list(
+  mu_max = mu_mean,      
+  k = k_mean,         
+  S = 0.05,                 
+  Q = q_mean
+  )
+
+# Create a sequence of dilution rates
+dil_values <- seq(0.001, exp(-0.383), 0.001)
+
+# Initialize an empty data frame to store results
+results <- data.frame(dil = numeric(), final_N = numeric())
+
+# Loop over dilution rates
+for (dil in dil_values) {
+  # Update parameters with the current dilution rate
+  params <- c(params_fixed, d = dil, m = dil) # m is set to d for our experiment
+  
+  # Solve the model
+  output <- ode(
+    y = initial_conditions,
+    times = t,
+    func = cr_tII_chemo,
+    parms = params
+  )
+  
+  # Convert output to a data frame
+  output_df <- as.data.frame(output)
+  
+  # Get the final value of N
+  final_N <- tail(output_df$N, 1)
+  
+  # Save the dilution rate and final_N to results
+  results <- rbind(results, data.frame(dil = dil, final_N = final_N))
+}
+
+```
+
+Plot results and compare to analytical prediction
+
+```{r, fig.width=4, fig.height=4}
+#### Analytical prediction
+# Define parameters
+u <- mu_mean
+k <- k_mean
+q <- q_mean
+S <- 0.05
+# Generate prediction
+d <- seq(0, u, by = 0.0001)
+m <- d
+N_star <- N_star_chemo(d, m, u, S, k, q)
+prediction <- data.frame(dilution_rate = d, N_star = N_star)
+
+# Plot results
+ggplot() +
+  geom_line(data = results, aes(x = dil, y = final_N, colour = "simulation"),
+            linewidth = 2) +
+  geom_line(data = prediction, aes(x = dilution_rate, y = N_star, colour = "prediction")) +
+  scale_colour_manual(values = c("simulation" = "#3BDCB4", "prediction" = "#185266")) +
+  labs(
+    x = "Dilution Rate",
+    y = "Equilibrium Density",
+    colour = ""
+  ) +
+  xlim(0, u) +
+  ylim(0, 0.25) +
+  theme_minimal()
+
+rm(output, output_df, params, params_fixed, prediction, 
+   d, dil, dil_values, final_N, initial_conditions, k, m, N_star, q, S, t, u,
+   results)
+```
+
+
+Now that we know analytical prediction matches simulations, make analytical prediction that incorporates uncertainty from Monod parameter estimates. 
+
+
+```{r, fig.width=4, fig.height=4}
+# Define parameters
+u <- mu_mean
+k <- k_mean
+q <- q_mean
+S <- 0.05
+
+# Generate prediction
+d <- seq(0, u+0.05, by = 0.0001)
+m <- d
+N_star <- N_star_chemo(d, m, u, S, k, q)
+prediction <- data.frame(dilution_rate = d, N_star = N_star)
+
+prediction <- prediction %>%
+  filter(N_star > 0) %>%
+  filter(dilution_rate < mu_mean)
+
+# add posteriors for uncertainty 
+# Expand grid of draws × dilution values
+pred_curves <- posterior_subset %>%
+  select(draw, mu_max, Ks, q) %>%
+  crossing(dilution_rate = d) %>%
+  mutate(
+    m = dilution_rate,
+    N_star = N_star_chemo(dilution_rate, m, mu_max, S, Ks, q)
+  )
+
+pred_curves <- pred_curves %>%
+  filter(N_star > 0) %>%
+  filter(dilution_rate < mu_max)
+
+# Plot results
+ggplot() +
+  geom_line(data = pred_curves, aes(x = dilution_rate, y = N_star, group = draw),
+            alpha = 0.05, color = j_green) +
+  geom_line(data = prediction, aes(x = dilution_rate, y = N_star),
+            color = j_green, linetype = "dashed") +
+  labs(
+    x = "Dilution Rate",
+    y = "Equilibrium Density",
+    colour = ""
+  ) +
+  #xlim(0, NA) +
+  #ylim(0, 0.22) +
+  theme_minimal()
+
+rm(d, k, m, N_star, q, S, u)
+
+
+
+```
+
+Save theoretical prediction and compare these to empirical results.  
+
+```{r}
+write.csv(pred_curves, "data/theory/prediction_posteriors.csv", row.names = F)
+write.csv(prediction, "data/theory/prediction.csv", row.names = F)
+
+#rm(pred_curves, prediction)
+```
+
+
+
+```{r}
+library(brms)
+chemo_dd_eqs_av <- read.csv("data/processed/equilibrium_samples_av.csv")
+
+```
+
+
+```{r, include = F}
+
+power_model <- brm(
+  # Model formula (parameters to fit are identified and nl flag is set)
+  bf(od_blanked ~ a * (dilution_rate^(1/b)) + c, 
+    a ~ 1,  
+    b ~ 1,  
+    c ~ 1,  
+    nl = TRUE
+  ),
+  # Data to use
+  data = chemo_dd_eqs_av,
+  
+  # Errors are gamma with identity link function
+  family = Gamma(link = "identity"),
+  
+  # Priors
+  prior = c(
+    prior(uniform(-5, 5), nlpar = "a", lb = -5, ub = 5),
+    prior(uniform(0, 2), nlpar = "b", lb = 0, ub = 2),
+    prior(uniform(0, 2), nlpar = "c", lb = 0, ub = 2)
+  ),
+  
+  # Hyperparameters
+  iter = 3000, 
+  warmup = 1500, 
+  chains = 4,
+  control = list(adapt_delta = 0.9, max_treedepth = 10)
+)
+
+```
+
+```{r}
+summary(power_model)
+plot(power_model)
+conditional_effects(power_model)
+pairs(power_model)
+pp_check(power_model, type = "scatter_avg")
+```
+
+
+
+
+```{r, fig.height=8, fig.width=8}
+
+################### model predictions ############################
+conditional_effects_data <- conditional_effects(power_model)
+predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
+
+
+
+ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate)) +
+  labs(
+    y = "Optical Density", x = "Dilution rate (ml/hour/ml)") +
+
+  geom_ribbon(
+    data = predicted_data,
+    aes(ymin = lower__, ymax = upper__, x = dilution_rate),
+    alpha = 0.4, inherit.aes = FALSE, fill = j_green, color = NA
+  ) +
+  
+  geom_line(data = predicted_data, 
+            aes(y = estimate__, x = dilution_rate), 
+            color = j_green, size = 2, linetype = "dashed") +
+  
+  
+  geom_line(
+    data = pred_curves,
+    aes(y = N_star, x = dilution_rate, group = draw),
+    color = j_green, size = 0.25, linetype = "solid", alpha = 0.1) +
+  
+  geom_line(
+    data = prediction,
+    aes(y = N_star, x = dilution_rate),
+    color = j_green, size = 1, linetype = "solid", alpha = 1) +
+  
+  
+  geom_point(colour = j_green, size = 5, alpha = 0.8) +
+  
+  theme_minimal(base_size = 20) +
+  
+  theme(panel.grid = element_blank(),
+            panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5))
+  
+
+```
+
+
+
+```{r, fig.height=4, fig.width=4}
+
+posterior <- posterior_samples(power_model)
+a <- mean(posterior$`b_a_Intercept`)
+c <- mean(posterior$`b_c_Intercept`)
+b <- mean(posterior$`b_b_Intercept`)
+
+od_seq <- seq(0, 0.2, by = 0.001)
+dilution_curve <- ((od_seq - c) / a) ^ b
+
+curve_data <- data.frame(od_blanked = od_seq, dilution_rate = dilution_curve) %>%
+  filter(dilution_rate > 0)
+
+
+
+
+
+ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate)) +
+  labs(
+    x = "Density",
+    y = "Growth"
+  ) +
+  
+  geom_line(
+    data = curve_data,
+    aes(x = od_blanked, y = dilution_rate),
+    color = j_blue, size = 1.5, linetype = "dashed") +
+  
+  scale_x_continuous(limits = c(0, 0.2), breaks = scales::pretty_breaks(n = 3)) +
+  
+  geom_point(colour = j_blue, size = 5, alpha = 0.3) + 
+  theme_light(base_size = 20)  +
+  
+  
+  
+  theme(panel.grid = element_blank(),
+            panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5))
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+## True density dependence
+
+### Chemostat resources
+
+Same model as before, except now m is not equal to d. 
+
+$$
+\frac{dN}{dt}  = N( \frac{\mu_{max}R}{k + R} -m) \\
+\frac{dR}{dt} = d(S - R) - \frac{\mu_{max}R}{k + R}QN
+$$
+
+From above, we know that the analytical expression perfectly predicts the simulations so we can just use that. 
+
+$$N^* = \frac{d}{\mu Q} \left [\frac{\mu S}{m}  - \frac{mk}{\mu - m} - k \right ]$$
+
+```{r, fig.width=4, fig.height=4}
+# parameters 
+u <- mu_mean
+k <- k_mean
+q <- q_mean
+S <- 0.05
+
+# generate predictions for different m and d
+m_vals <- seq(0.01, u, length = 1000) 
+dil_vals <- c(0.1, 0.5, 1)
+df_chemo <- expand.grid(m = m_vals, dil = dil_vals) %>%
+  mutate(N = N_star_chemo(dil, m, u, S, k, q)) %>%
+  filter(N > 0)
+
+# generate uncertainty 
+m_vals <- seq(0.01, max(posterior_subset$mu_max), length = 1000) 
+df_chemo_posts <- posterior_subset %>%
+  select(draw, mu_max, Ks, q) %>%
+  crossing(m = m_vals, dil = dil_vals) %>%
+  mutate(N = N_star_chemo(dil, m, mu_max, S, Ks, q))
+
+# remove observations where m goes above mu_max
+df_chemo_posts <- df_chemo_posts %>%
+  filter(m < mu_max) 
+
+ggplot() +
+  geom_line(data = df_chemo, aes(y = m, x = N, group = dil, colour = dil)) +
+  geom_line(data = df_chemo_posts, 
+            aes(y = m, x = N, group = interaction(dil, draw), colour = dil),
+            alpha = 0.1, size = 0.5) + 
+  labs(y = "Growth rate", x = "N*", color = "") +
+  xlim(0, 0.5) +
+  ylim(0, 0.7) + 
+  geom_hline(yintercept = c(0.1, 0.3, 0.5), linetype = "dashed", size = 0.5) +
+  theme_minimal()
+```
+
+Really cool - you can see where the Monod parameters make a difference (up at the inflection point, before chemostat dynamics control shape of density dependence). 
+
+I had to be very careful to ensure that for all predictions m was below mu_max, otherwise the function makes weird predictions so the posterior lines jump around the place. 
+
+
+
+```{r, fig.width=5, fig.height=5}
+# Function to generate the plot
+plot_subset <- function(dilution, mort) {
+  
+  mean <- df_chemo %>% 
+    filter(dil == dilution) %>%
+    filter(N > 0) %>%
+    filter(m > mort)
+  
+  posteriors <- df_chemo_posts %>%
+    filter(dil == dilution) %>%
+    filter(N > 0) %>%
+    filter(m > mort)
+  
+  p <- ggplot() +
+    geom_line(data = mean, aes(y = m, x = N), size = 1) +
+    geom_line(data = posteriors, 
+              aes(y = m, x = N, group = interaction(dil, draw)), 
+              alpha = 0.1, size = 0.5) +
+    labs(y = "", x = "", title = paste("D =", dil, " M =", mort)) +
+    theme_minimal() +
+    theme(plot.title = element_text(size = 10))
+  
+  return(p)  # Return the plot
+}
+
+# List to collect all plots
+plot_list <- list()
+
+# Loop over dilution and mortality
+for (dil in c(0.1, 0.5, 1)) {
+  for (mort in c(0.1, 0.3, 0.5)) {
+    p <- plot_subset(dil, mort)  # Generate the plot
+    plot_list[[paste0("dil_", dil, "_mort_", mort)]] <- p  # Store the plot in the list
+  }
+}
+
+plot_grid(plotlist = plot_list, ncol = 3, nrow = 3)
+  
+rm(df_chemo, df_chemo_posts, p, plot_list, dil, dil_vals, 
+   k, m_vals, mort, q, S, u, plot_subset)
+  
+```
+
+Only need to plot one dilution rate, but how to get three mortalities onto the same plot? Scale y axis to between mu max and mortality? Scale x axis to be between 0 and carrying capacity? Should call these y axes population growth rate, so as not to confuse with intrinsic mortality of the system. 
+
+
+### Logistic resources
+
+Now we have the consumer-resource model: 
+
+$$
+\frac{dN}{dt}  = N( \frac{\mu_{max}R}{k + R} -m) \\
+\frac{dR}{dt} = r R (1 - \frac{R}{K}) - \frac{\mu_{max}R}{k + R}QN
+$$
+Instead of $S$ and $d$, we have $r$ (intrinsic growth rate of resource) and $K$ (carrying capacity of resource). 
+
+Again, we can use an analytical solution to predict the equilibrium density of the consumer for this particular model. 
+
+**Need to check this with Andrew**
+
+$$
+N^* = \frac{k r \left( -((k + K) m) + K \mu \right)}{(K q) (m - \mu)^2}
+$$
+
+
+```{r}
+N_star_log <- function(r, K, m, u, k, q) {
+  return(((k*r)*(-((k + K)*m) + K*u))/((K*q)*(m - u)^2))
+}
+```
+
+
+```{r, fig.width=4, fig.height=4}
+# parameters 
+u <- mu_mean
+k <- k_mean
+q <- q_mean
+
+# generate data
+m_vals <- seq(0, u, length.out = 1000) 
+r <- 100
+K_vals <- c(0.0004, 0.0003, 0.0002, 0.0001)
+df_log <- expand.grid(m = m_vals, K = K_vals) %>%
+  mutate(N = N_star_log(r, K, m, u, k, q))
+
+# generate uncertainty 
+m_vals <- seq(0, max(posterior_subset$mu_max), length = 1000) 
+df_log_posts <- posterior_subset %>%
+  select(draw, mu_max, Ks, q) %>%
+  crossing(m = m_vals, K = K_vals) %>%
+  mutate(N = N_star_log(r, K, m, mu_max, Ks, q))
+
+
+ggplot() +
+  geom_point(data = df_log_posts, 
+             aes(y = m, x = N, group = interaction(K, draw), colour = K),
+             alpha = 0.02, size = 0.25) +
+  geom_line(data = df_log, aes(y = m, x = N, group = K, color = K)) +
+  geom_line(size = 1.5) +
+  labs(y = "Growth rate", x = "N*") +
+  xlim(0, NA) +
+  ylim(0, 0.4) +
+  theme_minimal()
+
+rm(df_log, df_log_posts, k, K_vals, m_vals, q, r, u)
+```
+
+It is very hard to find the right parameter values for the logistic growth that lead to stable equilibria (no extinctions and no cycles) over a range of mortality values. The quota and r determine the equilibrium abundance but don't change the shape of density dependence. Keeping the Monod function fixed, it is the carrying capacity of the logistic model that controls the shape of density dependence. The just controls which part of the functional response is being observed really. Pick one of these and vary mortality to show the same effect. Increasing K too much leads to cycles at low mortalities. Decreasing K too much leads to extinction at high moralities. Very fine range of parameters. 
+
+
+Simulate dynamics to find stable parameters 
+
+```{r, fig.width=3, fig.height=3}
+###################################
+#### Simulate for one dilution ####
+###################################
+
+### set initial conditions and paramaters
+t <- seq(0, 100, 1)
+initial_conditions <- c(N = 0.01, R = 0.01)
+
+params <- list(
+  mu_max = exp(-0.383),  
+  k = exp(-7.86),          
+  Q = 1/exp(1.33),        
+  m = 0,
+  r = 100,
+  K = 0.0004
+  )
+
+# Run model 
+output <- ode(
+    y = initial_conditions,
+    times = t,
+    func = cr_tII_log,
+    parms = params
+  )
+
+# Convert output to a data frame
+output_df <- as.data.frame(output)
+
+# Plot dynamics
+ggplot(output_df, aes(x = time)) +
+  geom_line(aes(y = N, color = "N")) +
+  geom_line(aes(y = R, color = "R")) +
+  labs(color = "") +
+  xlim(0, 100) +
+  theme_minimal() 
+
+
+rm(output, output_df, params, initial_conditions, t)
+
+```
+
+
+
+### Pulsed resources
+
+As a first test, confirm that growth under a single pulse of resources leads to superlinear density dependence for type II consumers. Add resources at the start, and watch the consumers grow and the resources go down. 
+
+The abrams method doens't work so well here as the system isn't at an equilibrium. Instead we can get per capita growth rates from the model directly and plot these against consumer density. Focus on the growth stage, how is per capita growth in that stage impacted by density? 
+
+For a single pulse 
+
+```{r}
+# Set initial conditions and parameters
+t <- seq(0, 5, by = 0.001)  
+initial_conditions <- c(N = 0.01, R = 0.05)
+
+
+# Fixed parameters 
+params <- list(
+  mu_max = mu_mean,     
+  k = k_mean,           
+  Q = q_mean,        
+  m = 0 
+)
+
+# Solve ODE with pulse events
+  output <- ode(
+    y = initial_conditions,
+    times = t,
+    func = cr_tII_pulse,
+    parms = params
+    )
+  
+# Convert output to data frame
+output_df <- as.data.frame(output)
+
+# Calculate per-capita growth rate at each timestep
+output_df <- output_df %>%
+  mutate(pcgr = (params$mu_max * R / (params$k + R)) - params$m)
+
+
+
+# Incorporate uncertainty by looping over posteriors 
+
+sim_results <- posterior_subset %>%
+  select(draw, mu_max, Ks, q) %>%
+  mutate(m = 0) %>%
+  pmap_dfr(function(draw, mu_max, Ks, q, m) {
+    params <- list(mu_max = mu_max, k = Ks, Q = q, m = m)
+    
+    ode_out <- ode(
+      y = initial_conditions,
+      times = t,
+      func = cr_tII_pulse,  # your ODE function
+      parms = params
+    )
+    
+    as.data.frame(ode_out) %>%
+      mutate(
+        draw = draw,
+        pcgr = (mu_max * R / (Ks + R)) - m  # per-capita growth
+      )
+  })
+
+
+# Plot dynamics
+p1 <- ggplot(output_df, aes(x = time)) +
+  geom_line(aes(y = N, color = "N")) +
+  geom_line(aes(y = R, color = "R")) +
+  labs(color = "") +
+  theme_minimal() 
+
+# Plot per-capita growth rate
+p2 <- ggplot() +
+  geom_line(data = sim_results, aes(x = N, y = pcgr, group = draw),
+            alpha = 0.05, size = 0.5) +
+  geom_line(data = output_df, aes(x = N, y = pcgr)) +
+  geom_line() +
+  theme_minimal()
+
+plot_grid(p1, p2)
+
+rm(output, output_df, p1, p2, params, sim_results, initial_conditions, t)
+```
+
+What happens when you have multiple pulses? 
+
+
+```{r}
+
+# hyperparameters 
+total_time <- 100
+pulse_intervals <- 10
+resolution <- 0.001
+pulse_size <- 0.05
+m <- 0.1
+
+# Initial conditions
+initial_conditions <- c(N = 0.01, R = 0.05)
+
+# Time frame
+t <- seq(0, total_time, by = resolution)
+
+# Define pulse times 
+pulse_times <- seq(0, total_time, by = pulse_intervals)
+
+# Set parameters
+params <- list(
+  mu_max = exp(-0.383),
+  k = exp(-7.86),
+  Q = 1 / exp(1.33),
+  pulse_size = pulse_size,
+  m = m  
+)
+
+# Run the model with events
+output <- ode(
+  y = initial_conditions,
+  times = t,
+  func = cr_tII_pulse,
+  parms = params,
+  events = list(func = pulse_fun, times = pulse_times),
+  method = "ode45"
+)
+
+# Convert to data frame
+output_df <- as.data.frame(output)
+
+# Calculate per-capita growth rate at each timestep
+output_df <- output_df %>%
+  mutate(pcgr = (params$mu_max * R / (params$k + R)) - params$m)
+
+# Plot dynamics
+p1 <- ggplot(output_df, aes(x = time)) +
+  geom_line(aes(y = N, color = "N")) +
+  geom_line(aes(y = R, color = "R")) +
+  labs(color = "") +
+  theme_minimal() 
+
+# Plot per capita growth rate once system is stable
+output_df_stable <- output_df %>%
+  filter(time > 50)
+
+p2 <- ggplot(output_df_stable, aes(x = N, y = pcgr)) +
+  geom_point() +
+  theme_minimal()
+
+plot_grid(p1, p2)
+
+rm(output, output_df, p1, p2, params, initial_conditions, t,
+   output_df_stable, m, pulse_intervals, pulse_size, pulse_times,
+   resolution, total_time)
+```
+
+Important to stress that the density dependence calculations for this pulsed resources is only valid if all of the resources are depeleted between pulses. If not all of the resources are depleted, then the resources are more like chemostat and the density dependence of the resource will be inherited by the consumer. Simulations with shorter pulse intervals won't show this because per capita growth rate is being calculated from the consumer equation and is ignoring the resource. Important to be clear about this assumption. 
+
+
+
+### Plot by mortality 
+
+If we want to have three panels from three different moralities and we want all three resource dynamics one each one, we'll need to rescale the axes so that comparisons are fair. Y axis could be scaled between maximum observed per capita growth and mortality. X axis could be scaled between 0 and carrying capacity. The other option is to have a 3 x 3 panel with all combinations of mortality and resource dynamics. 
+
+As the three resources dynamics lead to three different observed maximum growth rates, we can't give all three the same exact mortality values to represent high, medium, and low mortalities. A straightforward solution would be to express mortality as a percentage of the observed maximum growth rate. Choosing something like 25%, 50%, and 75%  mortality (relative to max growth) shows the strong impact of mortality on the observed density dependence. 
+
+
+
+```{r}
+# parameters 
+u <- mu_mean
+k <- k_mean
+q <- q_mean
+
+#### data for chemostat resources ####
+m_vals <- seq(0, u, length.out = 10000) 
+dil_vals <- 0.5
+S <- 0.05
+df_chemo <- expand.grid(m = m_vals, dil = dil_vals) %>%
+  mutate(avg_od = N_star_chemo(dil, m, u, S, k, q)) %>%
+  mutate(pcgr = m) %>%
+  filter(avg_od > 0)
+# generate uncertainty 
+m_vals <- seq(0.01, max(posterior_subset$mu_max), length = 1000) 
+df_chemo_posts <- posterior_subset %>%
+  select(draw, mu_max, Ks, q) %>%
+  crossing(m = m_vals, dil = dil_vals) %>%
+  mutate(N = N_star_chemo(dil, m, mu_max, S, Ks, q))
+# remove observations where m goes above mu_max and negative N
+df_chemo_posts <- df_chemo_posts %>%
+  filter(m < mu_max) %>%
+  filter(N > 0)
+
+
+#### data for logistic resources  ####
+m_vals <- seq(0, u, length.out = 10000) 
+r <- 100
+K_vals <- 0.0004
+df_log <- expand.grid(m = m_vals, K = K_vals) %>%
+  mutate(avg_od = N_star_log(r, K, m, u, k, q)) %>%
+  mutate(pcgr = m) %>%
+  filter(avg_od > 0)
+# generate uncertainty 
+m_vals <- seq(0, max(posterior_subset$mu_max), length = 1000) 
+df_log_posts <- posterior_subset %>%
+  select(draw, mu_max, Ks, q) %>%
+  crossing(m = m_vals, K = K_vals) %>%
+  mutate(N = N_star_log(r, K, m, mu_max, Ks, q)) %>%
+  filter(N > 0)
+
+
+#### data for pulsed resource ####
+t <- seq(0, 5, length.out = 10000)  
+initial_conditions <- c(N = 0.01, R = 0.05)
+params <- list(
+  mu_max = mu_mean,     
+  k = k_mean,           
+  Q = q_mean,        
+  m = 0
+)
+output <- ode(
+  y = initial_conditions,
+  times = t,
+  func = cr_tII_pulse,
+  parms = params
+    )
+output_df <- as.data.frame(output)
+df_pulse <- output_df %>%
+  mutate(pcgr = (params$mu_max * R / (params$k + R)) - params$m) %>%
+  rename(avg_od = N) %>%    # to be consistent with chemo and log 
+  filter(avg_od > 0)
+# generate uncertainty 
+df_pulse_posts <- posterior_subset %>%
+  select(draw, mu_max, Ks, q) %>%
+  mutate(m = 0) %>%
+  pmap_dfr(function(draw, mu_max, Ks, q, m) {
+    params <- list(mu_max = mu_max, k = Ks, Q = q, m = m)
+    ode_out <- ode(
+      y = initial_conditions,
+      times = t,
+      func = cr_tII_pulse,  # your ODE function
+      parms = params
+    )
+    as.data.frame(ode_out) %>%
+      mutate(
+        draw = draw,
+        pcgr = (mu_max * R / (Ks + R)) - m  # per-capita growth
+      )
+  })
+
+
+# sort out names
+df_chemo_posts <- df_chemo_posts %>%
+  mutate(pcgr = m) 
+df_log_posts <- df_log_posts %>%
+  mutate(pcgr = m) 
+df_pulse_posts <- df_pulse_posts %>%
+  mutate(m = pcgr) 
+df_chemo <- df_chemo %>%
+  mutate(N = avg_od) 
+df_log <- df_log %>%
+  mutate(N = avg_od) 
+df_pulse <- df_pulse %>%
+  mutate(N = avg_od) 
+
+```
+
+
+Create the nine plots 
+
+```{r, fig.width=6.3, fig.height=6}
+# Function to generate the plot
+plot_subset <- function(data, data2, mort_value) {
+  
+  mean <- data %>% 
+    filter(pcgr > mort_value) %>%
+    mutate(pcgr_realised = pcgr - mort_value)
+  
+  posteriors <- data2 %>%
+    filter(pcgr > mort_value) %>%
+    mutate(pcgr_realised = pcgr - mort_value)
+
+
+  p <- ggplot() +
+    geom_line(data = posteriors, aes(y = pcgr_realised, x = N, group = draw), 
+              alpha = 0.05, size = 0.5, colour = j_blue) +
+    geom_line(data = mean, aes(y = pcgr_realised, x = N), colour = j_blue) +
+    labs(y = "", x = "") +
+    theme_minimal() +
+    ylim(0, NA) +
+    scale_x_continuous(breaks = scales::pretty_breaks(n = 4)) +
+    scale_y_continuous(breaks = scales::pretty_breaks(n = 4)) +
+    theme(panel.grid = element_blank(),
+            panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5))
+  return(p) 
+}
+
+# List to collect all plots
+plot_list <- list()
+n <- 1  # only initialize once
+
+# list of datasets to use
+datasets <- list(df_chemo, df_pulse, df_log)
+datasets2 <- list(df_chemo_posts, df_pulse_posts, df_log_posts)
+
+# Mortality fractions
+mort_fracs <- c(0.25, 0.50, 0.75)
+
+# Loop over datasets and mortality levels
+for (i in seq_along(datasets)) {
+  data <- datasets[[i]]
+  data2 <- datasets2[[i]]
+  max_growth <- max(data$pcgr, na.rm = TRUE)
+
+  for (mort in mort_fracs) {
+    mort_value <- mort * max_growth
+    p <- plot_subset(data, data2, mort_value)
+    plot_list[[n]] <- p
+    n <- n + 1
+  }
+}
+
+# Display all plots
+custom_order <- c(3, 6, 9, 2, 5, 8, 1, 4, 7)
+plot_list_ordered <- plot_list[custom_order]
+plot_grid(plotlist = plot_list_ordered, ncol = 3, nrow = 3)
+
+```
+
+
+
+
+
+
+
+
+Try re-scaling axes 
+
+```{r, fig.height=3, fig.width=9}
+mort_plot <- function(mort) {
+
+  chemo_max <- max(df_chemo$pcgr, na.rm = TRUE)
+  chemo_mort_value <- mort * chemo_max
+  chemo_plot <- df_chemo %>%
+    filter(pcgr > chemo_mort_value) %>%
+    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
+    mutate(avg_od_rs = N / max(N, na.rm = TRUE))
+  
+  log_max <- max(df_log$pcgr, na.rm = TRUE)
+  log_mort_value <- mort * log_max
+  log_plot <- df_log %>%
+    filter(pcgr > log_mort_value) %>%
+    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
+    mutate(avg_od_rs = N / max(N, na.rm = TRUE))
+  
+  pulse_max <- max(df_pulse$pcgr, na.rm = TRUE)
+  pulse_mort_value <- mort * pulse_max
+  pulse_plot <- df_pulse %>%
+    filter(pcgr > pulse_mort_value) %>%
+    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
+    mutate(avg_od_rs = N / max(N, na.rm = TRUE))
+  
+  
+  
+  ## posteriors 
+  chemo_p_plot <- df_chemo_posts %>%
+    group_by(draw) %>%
+    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
+    filter(pcgr_rs > mort) %>%
+    mutate(pcgr_rs_2 = (pcgr_rs - min(pcgr_rs, na.rm = TRUE)) / (max(pcgr_rs, na.rm = TRUE) - min(pcgr_rs, na.rm = TRUE))) %>%
+    mutate(avg_od_rs = N / max(N, na.rm = TRUE)) %>%
+    ungroup() 
+  
+  log_p_plot <- df_log_posts %>%
+    group_by(draw) %>%
+    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
+    filter(pcgr_rs > mort) %>%
+    mutate(pcgr_rs_2 = (pcgr_rs - min(pcgr_rs, na.rm = TRUE)) / (max(pcgr_rs, na.rm = TRUE) - min(pcgr_rs, na.rm = TRUE))) %>%
+    mutate(avg_od_rs = N / max(N, na.rm = TRUE)) %>%
+    ungroup() 
+    
+  pulse_p_plot <- df_pulse_posts %>%
+    group_by(draw) %>%
+    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
+    filter(pcgr_rs > mort) %>%
+    mutate(pcgr_rs_2 = (pcgr_rs - min(pcgr_rs, na.rm = TRUE)) / (max(pcgr_rs, na.rm = TRUE) - min(pcgr_rs, na.rm = TRUE))) %>%
+    mutate(avg_od_rs = N / max(N, na.rm = TRUE)) %>%
+    ungroup() 
+  
+  
+  
+  
+  ggplot() +
+    
+    geom_line(data = chemo_p_plot, aes(x = avg_od_rs, y = pcgr_rs_2, group = draw), 
+              size = 0.5, color = "cyan3", alpha = 0.1) +
+    geom_line(data = log_p_plot, aes(x = avg_od_rs, y = pcgr_rs_2, group = draw), 
+              size = 0.5, color = "darkorange" , alpha = 0.1) +
+    geom_line(data = pulse_p_plot, aes(x = avg_od_rs, y = pcgr_rs_2, group = draw), 
+              size = 0.5, color = "maroon", alpha = 0.1) +
+    
+    #geom_line(data = chemo_plot, aes(x = avg_od_rs, y = pcgr_rs), 
+    #          size = 1.5, color = "cyan3") +
+    #geom_line(data = log_plot, aes(x = avg_od_rs, y = pcgr_rs), 
+    #          size = 1.5, color = "darkorange") +
+    #geom_line(data = pulse_plot, aes(x = avg_od_rs, y = pcgr_rs), 
+    #          size = 1.5, color = "maroon") +
+    labs(y = "", x = "") +
+    theme_minimal() +
+    theme(legend.position = "none")
+}
+
+
+  
+p1 <- mort_plot(0.25) 
+p2 <- mort_plot(0.5) 
+p3 <- mort_plot(0.75) 
+
+
+  
+# Display all plots
+plot_grid(p1, p2, p3, ncol = 3, nrow = 1)
+  
+```
+Rescaling the posteriors seems to get rid of their variation. I have to do the rescalign within a draw, so it isn't all that surprising I guess. Definitely leaning more towards the 3 x 3 plot. 
+
+
+
+
+```{r, fig.height=3, fig.width=9}
+
+rescale_plot <- function(mean_data, posts_data) {
+  
+  mort <- c(0.25, 0.5, 0.75)
+  
+  ## mean 
+
+  
+  ## posteriors 
+  p_plot_1 <- posts_data %>%
+    group_by(draw) %>%
+    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
+    filter(pcgr_rs > mort[1]) %>%
+    mutate(pcgr_rs_2 = (pcgr_rs - min(pcgr_rs, na.rm = TRUE)) / (max(pcgr_rs, na.rm = TRUE) - min(pcgr_rs, na.rm = TRUE))) %>%
+    mutate(avg_od_rs = N / max(N, na.rm = TRUE)) %>%
+    ungroup() 
+  
+  p_plot_2 <- posts_data %>%
+    group_by(draw) %>%
+    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
+    filter(pcgr_rs > mort[2]) %>%
+    mutate(pcgr_rs_2 = (pcgr_rs - min(pcgr_rs, na.rm = TRUE)) / (max(pcgr_rs, na.rm = TRUE) - min(pcgr_rs, na.rm = TRUE))) %>%
+    mutate(avg_od_rs = N / max(N, na.rm = TRUE)) %>%
+    ungroup() 
+  
+  p_plot_3 <- posts_data %>%
+    group_by(draw) %>%
+    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
+    filter(pcgr_rs > mort[3]) %>%
+    mutate(pcgr_rs_2 = (pcgr_rs - min(pcgr_rs, na.rm = TRUE)) / (max(pcgr_rs, na.rm = TRUE) - min(pcgr_rs, na.rm = TRUE))) %>%
+    mutate(avg_od_rs = N / max(N, na.rm = TRUE)) %>%
+    ungroup() 
+  
+  
+  
+  ggplot() +
+    geom_line(data = p_plot_1, aes(x = avg_od_rs, y = pcgr_rs_2, group = draw), 
+              size = 0.5, color = "gray10", alpha = 0.1) +
+    geom_line(data = p_plot_2, aes(x = avg_od_rs, y = pcgr_rs_2, group = draw), 
+              size = 0.5, color = "gray40", alpha = 0.1) +
+    geom_line(data = p_plot_3, aes(x = avg_od_rs, y = pcgr_rs_2, group = draw), 
+              size = 0.5, color = "gray70", alpha = 0.1) +
+    labs(y = "", x = "") +
+    theme_minimal() +
+    theme(legend.position = "none")
+}
+  
+
+p1 <- rescale_plot(df_chemo, df_chemo_posts)
+p2 <- rescale_plot(df_log, df_log_posts)
+p3 <- rescale_plot(df_pulse, df_pulse_posts)
+
+
+
+  
+# Display all plots
+plot_grid(p1, p2, p3, ncol = 3, nrow = 1)
+```
+
+
+
