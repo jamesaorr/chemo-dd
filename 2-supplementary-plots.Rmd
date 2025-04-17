@@ -8,7 +8,15 @@ output:
 author: "James Orr"
 ---
 
-This notebook uses the processed data from `1-data-prep.Rmd` for creating supplementary plots. 
+This notebook uses the processed data from `1-data-prep.Rmd` to create supplementary plots for our study on the shape of density dependence of *E. coli*. Here we plot: 
+
+- densities (OD and CFU) for each experiment against dilution rate (colored by day)
+
+- equilibrium density against dilution rate for all data to illustrate chosen cut-off points (low, intermediate, and high dilution rates), which determines what days a population was considered at equilibrium and unaffected by evolution. 
+
+- equilibrium density against dilution rate for each data filtering option (for OD and CFU). 
+
+- the chibio's OD timeseries for dd7. 
 
 
 ### Set up environment 
@@ -51,7 +59,6 @@ ggplot(all_samples, aes(y = cfu_ul, x = dilution_rate, color = day)) +
   theme_light() +
   facet_wrap(~ experiment_replicate, scales = "free_y")
 ```
-
 ```{r}
 ggplot(all_samples, aes(y = od_blanked, x = dilution_rate, color = day)) +
   geom_point() + 
@@ -61,11 +68,9 @@ ggplot(all_samples, aes(y = od_blanked, x = dilution_rate, color = day)) +
   facet_wrap(~ experiment_replicate, scales = "free_y")
 ```
 
-Cutoff between low, intermediate, and high dilution rates
+Cutoff between low, intermediate, and high dilution rates. Only include up to and including day 4
 
-Only include up to and including day 4
-
-```{r, fig.height=5, fig.width=10}
+```{r, fig.height=4, fig.width=8}
 
 ggplot(subset(all_samples, all_samples$day < 5), 
        aes(y = od_blanked, x = dilution_rate, 
@@ -92,199 +97,93 @@ ggplot(subset(all_samples, all_samples$day < 5),
 
   labs(y = "OD", x = "Dilution rate (ml/hour/ml)") + 
     
-  theme_light() +
-  
-  theme(
-    axis.title.x = element_text(size = 16),  # Increase x-axis label size
-    axis.title.y = element_text(size = 16),  # Increase y-axis label size
-    axis.text.x = element_text(size = 14),   # Increase x-axis tick text size
-    axis.text.y = element_text(size = 14),   # Increase y-axis tick text size
-    legend.title = element_text(size = 14),  # Increase legend title text size
-    legend.text = element_text(size = 12)    # Increase legend text size
-  )
+  theme_light()
 
 
 ```
+
+Key observations from this plot are that: (i) in the "low" dilution rate zone (light grey) OD **decreases** each day and takes about 4 days to reach equilibrium due to the overshoot dynamic, (ii) in the "intermediate" dilution rate zone (medium grey) OD can go **up or down** (depending on stochasticity) so is considered at equilibrium on days 1 and 2 before evolution can have an effect, and (iii) in the "high dilution rate" zone (dark grey) OD **increases** each day until day 4 so is considered at equilibrium on day 4 only. 
+
 
 ### Equilibrium densities by dilution rate
 
 #### CFUs 
 
-
 ```{r, fig.height=5, fig.width=15}
-p1 <- ggplot(equilibrium_samples, aes(y = cfu_ul, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "CFU/μL", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
+# Define a function to generate the plot
+make_plot <- function(data, title) {
+  ggplot(data, aes(y = cfu_ul, 
+                   x = dilution_rate, 
+                   shape = experiment_replicate)) +
+    geom_point(size = 2) + 
+    labs(y = "CFU/μL", x = "Dilution rate (ml/hour/ml)",
+         title = title) +
+    scale_shape_manual(values = c(15:19), name = "Replicate") +
+    theme_minimal()
+}
+
+# List of data frames
+data_list <- list(
+  equilibrium_samples, chemo_dd_eqs_av, chemo_dd_eqs_first, chemo_dd_eqs_last,
+  chemo_dd_eqs_day1, chemo_dd_eqs_day2, chemo_dd_eqs_day3, chemo_dd_eqs_day4
+)
+
+# Corresponding plot titles
+titles <- c(
+  "all equilibrium", "equilibrium (mean)", 
+  "equilibrium (first)", "equilibrium (last)",
+  "day 1s", "day 2", "day 3", "day 4"
+)
 
 
-p2 <- ggplot(chemo_dd_eqs_av, aes(y = cfu_ul, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "CFU/μL", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_av") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
+# Use Map to generate all plots
+plots <- Map(make_plot, data_list, titles)
 
+# Arrange them into a grid
+plot_grid(plotlist = plots, nrow = 2)
 
+rm(titles, data_list, plots, make_plot)
 
-p3 <- ggplot(chemo_dd_eqs_first, aes(y = cfu_ul, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "CFU/μL", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_first") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
-
-
-
-p4 <- ggplot(chemo_dd_eqs_last, aes(y = cfu_ul, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "CFU/μL", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_last") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
-
-
-
-p5 <- ggplot(chemo_dd_eqs_day1, aes(y = cfu_ul, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "CFU/μL", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_day1") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
-
-p6 <- ggplot(chemo_dd_eqs_day2, aes(y = cfu_ul, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "CFU/μL", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_day2") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
-
-p7 <- ggplot(chemo_dd_eqs_day3, aes(y = cfu_ul, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "CFU/μL", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_day3") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
-
-p8 <- ggplot(chemo_dd_eqs_day4, aes(y = cfu_ul, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "CFU/μL", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_day4") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
-
-
-plot_grid(p1, p2, p3, p4,
-          p5, p6, p7, p8,
-          nrow = 2)
 ```
 
 #### OD
 
 ```{r, fig.height=5, fig.width=15}
-p1 <- ggplot(equilibrium_samples, aes(y = od_blanked, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "OD", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
+
+# Define a function to generate the plot
+make_plot <- function(data, title) {
+  ggplot(data, aes(y = od_blanked, 
+                   x = dilution_rate, 
+                   shape = experiment_replicate)) +
+    geom_point(size = 2) + 
+    labs(y = "OD", x = "Dilution rate (ml/hour/ml)",
+         title = title) +
+    scale_shape_manual(values = c(15:19), name = "Replicate") +
+    theme_minimal()
+}
+
+# List of data frames
+data_list <- list(
+  equilibrium_samples, chemo_dd_eqs_av, chemo_dd_eqs_first, chemo_dd_eqs_last,
+  chemo_dd_eqs_day1, chemo_dd_eqs_day2, chemo_dd_eqs_day3, chemo_dd_eqs_day4
+)
+
+# Corresponding plot titles
+titles <- c(
+  "all equilibrium", "equilibrium (mean)", 
+  "equilibrium (first)", "equilibrium (last)",
+  "day 1s", "day 2", "day 3", "day 4"
+)
 
 
-p2 <- ggplot(chemo_dd_eqs_av, aes(y = od_blanked, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "OD", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_av") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
+# Use Map to generate all plots
+plots <- Map(make_plot, data_list, titles)
 
+# Arrange them into a grid
+plot_grid(plotlist = plots, nrow = 2)
 
+rm(titles, data_list, plots, make_plot)
 
-p3 <- ggplot(chemo_dd_eqs_first, aes(y = od_blanked, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "OD", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_first") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
-
-
-
-p4 <- ggplot(chemo_dd_eqs_last, aes(y = od_blanked, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "OD", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_last") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
-
-
-
-p5 <- ggplot(chemo_dd_eqs_day1, aes(y = od_blanked, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "OD", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_day1") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
-
-p6 <- ggplot(chemo_dd_eqs_day2, aes(y = od_blanked, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "OD", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_day2") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
-
-p7 <- ggplot(chemo_dd_eqs_day3, aes(y = od_blanked, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "OD", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_day3") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
-
-p8 <- ggplot(chemo_dd_eqs_day4, aes(y = od_blanked, 
-                                      x = dilution_rate, 
-                                      shape = experiment_replicate)) +
-  geom_point(size = 2) + 
-  labs(y = "OD", x = "Dilution rate (ml/hour/ml)",
-       title = "chemo_dd_eqs_day4") +
-  scale_shape_manual(values = c(15:19), name = "Replicate") +
-  theme_minimal()
-
-
-plot_grid(p1, p2, p3, p4,
-          p5, p6, p7, p8,
-          nrow = 2)
-
-rm(p1, p2, p3, p4, p5, p6, p7, p8)
 ```
 
 

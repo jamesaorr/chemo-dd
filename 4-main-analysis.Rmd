@@ -133,7 +133,7 @@ We have empirical estimates for $\mu_{max}$, $k$, and $Q$ *(note that we have an
 
 ```{r}
 # read in the model fit
-monod_fit <- readRDS(paste0('daniel/daniel_data/fits/MG1655_MCMC_holling_random.Rdata'))
+monod_fit <- readRDS(paste0('data/fits/MG1655_MCMC_holling_random.Rdata'))
 
 # extract the posterior draws
 # rename variables to match growth rate of yield times Holling-like uptake rate

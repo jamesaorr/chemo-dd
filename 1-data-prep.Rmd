@@ -12,13 +12,9 @@ author: "James Orr"
 
 ## Summary
 
-This R notebook is used for organising the data (colony counts, od reads, outflow volumes, chibio) from the density-dependence experiments with e. coli in chemostats in the Letten lab. 
+This R notebook is used for organising the data (colony counts, optical density single reads, outflow volumes, chibio optical density timeseries) from the density-dependence experiments with e. coli in chemostats in the Letten lab. 
 
-dd1-dd4 were conducted by Kaleigh Davis but dd1 failed and produced no data. 
-
-dd5-dd7 were conducted by James Orr and Alicia Williams but dd5 failed and produced no data.
-
-Experiments that are used in this study are: dd2, dd3, dd4, dd6, and dd7 
+dd1-dd4 were conducted by Kaleigh Davis but dd1 failed and produced no data. dd5-dd7 were conducted by James Orr and Alicia Williams but dd5 failed and produced no data. Experiments that are used in this study are: dd2, dd3, dd4, dd6, and dd7 
 
 ## Set up environment 
 
