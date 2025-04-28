@@ -79,14 +79,14 @@ ggplot(subset(all_samples, all_samples$day < 5),
   # Add shaded regions
   geom_rect(aes(xmin = -Inf, xmax = 0.1, ymin = -Inf, ymax = Inf), 
             fill = "gray99", inherit.aes = FALSE) + 
-  geom_rect(aes(xmin = 0.1, xmax = 0.75, ymin = -Inf, ymax = Inf), 
+  geom_rect(aes(xmin = 0.1, xmax = 0.7, ymin = -Inf, ymax = Inf), 
             fill = "gray95", inherit.aes = FALSE) + 
-  geom_rect(aes(xmin = 0.75, xmax = Inf, ymin = -Inf, ymax = Inf), 
+  geom_rect(aes(xmin = 0.7, xmax = Inf, ymin = -Inf, ymax = Inf), 
             fill = "gray90", inherit.aes = FALSE) +   
   
   geom_point(size = 4, alpha = 1) + 
 
-  geom_vline(xintercept = c(0.1, 0.75), linetype = "dashed", color = "gray50") + # Vertical lines
+  geom_vline(xintercept = c(0.1, 0.7), linetype = "dashed", color = "gray50") + # Vertical lines
 
   geom_line(aes(group = dilution_rate), linetype = "solid", 
             color = "black", size = 1.5, alpha = 0.3) + 

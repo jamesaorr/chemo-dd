@@ -24,6 +24,8 @@ Load packages and clear environment
 #### Required packages
 library(tidyverse)  
 library(readr)
+library(stringr)
+library(lubridate)
 
 #### Clear  environment 
 rm(list = ls())   
@@ -156,26 +158,97 @@ outflow <- outflow %>%
 #plot(outflow$inflow_setting, outflow$outflow_per_hour_mean)
 ```
 
-Calculate dilution rate and final cleaning of outflow data. Dilution rate is volume of medium supplied per hour divided by the volume of the culture (standard approach in chemostat work).  
+Calculate dilution rate and final cleaning of outflow data. Dilution rate is volume of media supplied per hour divided by the volume of the culture (standard approach in chemostat work).  
+
+The volume of the culture for most of a cycle is 21ml. However, between inflow and outflow there is a larger volume of liquid in the reactor. The bigger the dilution rate the greater this value is. Therefore we need to calculate the time-average volume in the chemostat. 
+
+First step will be to estimate the average time between inflow and outflow pumps. We need the Chi.Bio log files for this and we only have these files for dd7. So across all pumps we'll take the average of the time between inflow and outflow and use this single average value for all experiments and all reactors. It isn't perfect, but it is a good approximation as experimental procedures were consistent. 
 
 ```{r}
-outflow <- outflow %>%
-  
-  # as a fraction of the volume of the vial (21ml) to get rate of dilution 
-  mutate(dilution_rate = outflow_per_hour_mean/21) %>%
-  
-  # rename some variables to match cfu and od
-  rename(experiment_replicate = experiment_rep) %>%
-  rename(ID = bioreactor)
+log_file <- readLines("data/chibio/dd7/dd7-log.txt")
+log_file <- log_file[-(1:5)] # Drop the first 5 lines (general info)
+
+# convert to a tidy data frame
+log_df <- tibble(raw = log_file) %>%
+  mutate(
+    # Try to match a date and time at the start using regex 
+    # first match is a data ([0-9]{4}-[0-9]{2}-[0-9]{2})
+    # then one or more spaces []+
+    # second match is a time ([0-9:.+-]+)
+    # then one or more spaces []+
+    # third match is everything that is left
+    match = str_match(raw, 
+                      "^([0-9]{4}-[0-9]{2}-[0-9]{2})[ ]+([0-9:.+-]+)[ ]+(.*)"),
+    
+    # extract the matches into columns (first match is the full line)
+    full_line = match[,1],
+    date = match[,2],
+    time = match[,3],
+    message = match[,4]
+  ) %>%
+  select(full_line, date, time, message)
+
+# select lines related to the pumps 
+log_df <- log_df %>%
+  filter(str_starts(message, "Pump"))
+
+# create a datetime variable
+log_df <- log_df %>%
+  mutate(datetime = ymd_hms(paste(date, time), truncated = 3))
+
+# remove the first 5 hours and last 5 hours (set up and shut down)
+# define start and end cutoffs and filter the dataframe
+start_cutoff <- min(log_df$datetime, na.rm = TRUE) + hours(5)
+end_cutoff <- max(log_df$datetime, na.rm = TRUE) - hours(5)
+log_df <- log_df %>%
+  filter(datetime > start_cutoff, datetime < end_cutoff)
+
+# there are matching numbers of inflows and outflows, starting at M0 inflow
+# ending on outflow M7 - so we have 4208/2/8 = 263 20 minute cycles 
+
+# create variable for reactor and inflow or outflow
+log_df <- log_df %>%
+  mutate(reactor = str_extract(message, "M[0-9]+")) %>%
+  # regex to extract time in front of "ms" 
+  mutate(pump_time = as.numeric(str_extract(message, 
+                                               "\\d+(\\.\\d+)?(?=ms)"))) %>%
+  mutate(event_type = if_else(pump_time < 12000, "inflow", "outflow"))
+
+
+# calculate the time between inflow and outflow pumps
+# separate the inflow and outflow events 
+inflow_pumps <- log_df %>% 
+  filter(event_type == "inflow") %>%
+  select(event_type, reactor, datetime)
+outflow_pumps <- log_df %>% filter(event_type == "outflow") %>%
+  select(event_type, reactor, datetime)
+
+# just add in - they are at a 1:1 match based on rows already 
+time_difference <- inflow_pumps %>%
+  mutate(datetime2 = outflow_pumps$datetime) %>%
+  mutate(time_diff = as.numeric(difftime(datetime2, datetime, 
+                                         units = "secs"))) %>%
+  select(-event_type)
+
+# calculate average time difference overall and per reactor 
+
+time_difference_average <- mean(time_difference$time_diff, na.rm = TRUE)
+
+time_difference_reactors <- time_difference %>%
+  group_by(reactor) %>%
+  summarise(mean_time_diff = mean(time_diff, na.rm = TRUE))
+
+rm(log_df, inflow_pumps, outflow_pumps, end_cutoff, start_cutoff, log_file)
 ```
 
-Need to think carefully about whether 21ml is the correct volume to use for the chemostats. In theory this is what we want, but because we're on 20 minute cycles large volumes of liquid come into the reactors for the high dilution rates and sit there until the outflow pumps run. If dilution rate is calculated with minimum volume of chemostat then 21ml is used for all. If it is calculated with maximum volume of chemostat then it will be 21ml + volume for a given inflow setting. Using the minimum or the maximum could both be feasible options - although the minimum is probably the more parsimonious. Low inflow settings won't have different dilution rates for the max or the min volume used, but the high inflow settings will all have higher volumes and therfore lower dilution rates.
+On average the time between inflow and outflow is 141.85 seconds or **11.8%** of a cycle. No significant changes over time (about two seconds over four days) and no big differences between reactors (range of 129 to 153 seconds). 
 
-First step is to calculate the volumes associated with an inflow setting. I can use the outflow volumes to work this out. Because inflow pumps run every 20 minutes, they run 72 times a day. Therefore daily outflow volume divided by 72 will be the volume of water that comes into the chemostats at each inflow cycle. Adding this volume to 21 will give the max liquid volume of the chemostats in a given cycle. 
-
-For now, we can calculate the min and the max - extreme ranges of possible results. Some sort of mean (time averaged) volume might be the most accurate approach. Just need to identify the average interval between inflow and outflow pumps from the chibio data. 
+Next we need to calculate the volumes associated with an inflow setting. I can use the outflow volumes to work this out. Because inflow pumps run every 20 minutes, they run 72 times a day. Therefore daily outflow volume divided by 72 will be the volume of water that comes into the chemostats at each inflow cycle. Adding this volume to 21 will give the max liquid volume of the chemostats in a given cycle. 
 
 ```{r}
+proportion_at_max <- time_difference_average / (20*60)
+proportion_at_min <- 1 - proportion_at_max
+
 outflow <- outflow %>%
   
   # inflow volume is hourly outflow volume divided by number of inflow cycles (3)
@@ -184,12 +257,25 @@ outflow <- outflow %>%
   # maximum volume of reactor is 21ml + inflow volume 
   mutate(max_volume = inflow_volume + 21) %>%
   
-  # dilution rate based on max volume 
-  mutate(dilution_rate_2 = outflow_per_hour_mean/max_volume)
+  # time average volume 
+  mutate(time_average_volume = (21*proportion_at_min) + (max_volume*proportion_at_max)) %>%
+  
+  # dilution rate (outflow volume per hour / time average volume)
+  mutate(dilution_rate = outflow_per_hour_mean/time_average_volume) %>%
+  
+  # option to just use minimum volume 
+  #mutate(dilution_rate = outflow_per_hour_mean/21) %>%
 
 
-#plot(outflow$inflow_volume, outflow$inflow_setting)
+  # rename some variables to match cfu and od
+  rename(experiment_replicate = experiment_rep) %>%
+  rename(ID = bioreactor)
+           
+rm(proportion_at_max, proportion_at_min, 
+   time_difference_average, time_difference_reactors, time_difference)        
 ```
+
+
 
 ## OD data
 
@@ -383,10 +469,10 @@ chemo_dd_eqs <- chemo_dd %>%
   filter(!(dilution_rate < 0.1 & day %in% c(1, 2, 3))) %>%
   
   # highest dilutions need time to get to equilibrium: take at least day 3 
-  filter(!(dilution_rate > 0.75 & day %in% c(1, 2))) %>%
+  filter(!(dilution_rate > 0.7 & day %in% c(1, 2))) %>%
   
   # mid dilution rates get to equilibrium fast but could then evolve, take days 1 and 2 only
-  filter(!(dilution_rate < 0.75 & dilution_rate > 0.1 & day %in% c(3, 4, 5, 6))) %>%
+  filter(!(dilution_rate < 0.7 & dilution_rate > 0.1 & day %in% c(3, 4, 5, 6))) %>%
   
   # longer than 4 days is too much, equilibrium already reached but high risk of evolution
   filter(!(day > 4))
@@ -401,7 +487,7 @@ Next, create "final" datasets that follow different filtering procedures outline
 chemo_dd_eqs_av <- chemo_dd_eqs %>%
   select(-c(sample)) %>%
   group_by(experiment_replicate, ID, inflow_setting, 
-           outflow_per_hour_mean, dilution_rate, dilution_rate_2) %>%
+           outflow_per_hour_mean, dilution_rate) %>%
   summarise(od_blanked = mean(od_blanked, na.rm = TRUE),
             cfu_ul = mean(cfu_ul, na.rm = TRUE),
             n = n(),
@@ -412,7 +498,7 @@ chemo_dd_eqs_av <- chemo_dd_eqs %>%
 chemo_dd_eqs_last <- chemo_dd_eqs %>%
   select(-c(sample)) %>%
   group_by(experiment_replicate, ID, inflow_setting, 
-           outflow_per_hour_mean, dilution_rate, dilution_rate_2) %>%
+           outflow_per_hour_mean, dilution_rate) %>%
   slice_max(day, with_ties = FALSE) %>%
   mutate(n = 1)
 
@@ -421,7 +507,7 @@ chemo_dd_eqs_last <- chemo_dd_eqs %>%
 chemo_dd_eqs_first <- chemo_dd_eqs %>%
   select(-c(sample)) %>%
   group_by(experiment_replicate, ID, inflow_setting, 
-           outflow_per_hour_mean, dilution_rate, dilution_rate_2) %>%
+           outflow_per_hour_mean, dilution_rate) %>%
   slice_min(day, with_ties = FALSE) %>%
   mutate(n = 1)
 
