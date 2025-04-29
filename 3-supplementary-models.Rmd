@@ -264,7 +264,7 @@ $$
 g=\frac{\alpha}{\theta}\left(1-\left(\frac{N}{K}\right)^\theta\right)
 $$
 
-where $r$ is now $\frac{\alpha}{\theta}$. The inverse of this function is:  
+where $r=\frac{\alpha}{\theta}$. The inverse of this function is:  
 
 
 $$
@@ -322,6 +322,12 @@ pp_check(model_repara, type = "scatter_avg")
 conditional_effects_data <- conditional_effects(model_repara)
 predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
 posteriors <- posterior_samples(model_repara)
+
+posteriors$r <- posteriors$b_a_Intercept / posteriors$b_theta_Intercept
+hist(posteriors$r, breaks = 100)
+min(posteriors$r)
+max(chemo_dd_eqs_av$dilution_rate)
+
 K <- mean(posteriors$`b_K_Intercept`)
 a <- mean(posteriors$`b_a_Intercept`)            # use median for skewed posteriors? 
 theta <- mean(posteriors$`b_theta_Intercept`)
@@ -366,7 +372,7 @@ plot_grid(p1, p2)
 
 ```
 
-
+Posteriors look a lot better now, but alpha and theta are way more closely correlated. r (which is the ratio of alpha/theta) is still restricted to being larger than the maximum observed dilution rate. 
 
 
 
