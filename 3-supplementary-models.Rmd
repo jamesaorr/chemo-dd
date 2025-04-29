@@ -48,7 +48,7 @@ chemo_dd_eqs_day4 <- read.csv("data/processed/equilibrium_samples_day4.csv")
 
 ```
 
-To begin with we'll use `chemo_dd_eqs_av`, which we believe is the most sensible way of selecting equilibrium points. Once our modelling framework is decided, we'll run the analyses with all the different "final" datasets. This dataset contains 30 observations and has no pseudoreplication. `experiment_replicate` is a grouping factor, but we can't use this as a random effect as only one of the experiments (dd7) tested dilution rates across the full range of dilution rates. 
+To begin with we'll use `chemo_dd_eqs_av`, which we believe is the most sensible way of selecting equilibrium points. Once our modelling framework is decided, we'll run the analyses with all the different "final" datasets. This dataset contains 31 observations and has no pseudoreplication. `experiment_replicate` is a grouping factor, but we can't use this as a random effect as only one of the experiments (dd7) tested dilution rates across the full range of dilution rates. 
 
 ### Flipped theta-logistic model 
 
@@ -60,7 +60,7 @@ $$
 \frac{1}{N} \frac{d N}{d t}=r\left(1-\left(\frac{N}{K}\right)^\theta\right)
 $$
 Where $\frac{1}{N} \frac{d N}{d t} = g$ is the per capita growth (i.e. `dilution_rate`), $N$ is the abundance/density (i.e., `od_blanked`), $r$ is the intrinsic growth rate, $K$ is the carrying capacity, and $\theta$ is the parameter that controls the shape of density dependence. 
-When $\theta$ is 1, it is linear (i.e., logistic growth model), when it is >1 the density dependence is concave (what we expect based on consumer-resource theory), when it is <1 the density dependence is sublinear (a hot topic at the moment). 
+When $\theta$ is 1, it is linear (i.e., logistic growth model), when it is >1 the density dependence is concave (what we expect based on consumer-resource theory), when it is <1 the density dependence is sublinear. 
 
 We will be using `brms` to estimate the values of $r$, $K$, and most importantly $\theta$, based on the relationship between $g$ and $N$. However, as we manipulated per capita growth, we need to express the theta-logistic model in terms of $N$ (our response variable given our experimental design). 
 

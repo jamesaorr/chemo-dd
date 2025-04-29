@@ -445,7 +445,7 @@ The low to intermediate cutoff is pretty easy - all samples with dilution rate o
 
 The intermediate to high cut-off is a bit more difficult to choose. Looking at the OD per day plots for each replicate (especially dd4 and dd7), there is gradual increases in *all* dilutions above 0.75 and the inflow settings corresponding to these dilution rates lead to slow population growths that take several days to reach equilibrium. Below 0.75 and down to 0.25 there are some populations that increased each day and some that decreased each day, and some that stayed the same. These variable results could be related to noise or evolution. 
 
-Based on these observations (illustrated in `2-exploratory-plots.RMD`), I'll go with 0.1 and 0.75 as the two cutoffs. Our results are not sensitive to these choices. 
+Based on these observations (illustrated in `2-exploratory-plots.RMD`), I'll go with 0.1 and 0.7 as the two cutoffs. Our results are not sensitive to these choices. 
 
 ## Different filtering procedures
 

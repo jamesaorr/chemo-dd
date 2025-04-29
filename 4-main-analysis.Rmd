@@ -8,7 +8,7 @@ output:
 author: "James Orr"
 ---
 
-This notebook uses the processed data from `1-data-prep.Rmd` and the estimated Monod parameters for the E. coli strain used in our study (in the fits subfolder) to make the predictions for density dependence based on consumer-resource theory. 
+This notebook uses the processed data from `1-data-prep.Rmd` and the estimated Monod parameters for the E. coli strain used in our study (in the fits sub folder) to make the predictions for density dependence based on consumer-resource theory. 
 
 
 ## Set up environment 
