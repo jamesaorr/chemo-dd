@@ -22,15 +22,18 @@ library(deSolve)                   # solving differential equations
 library(cowplot)                   # arranging plots 
 library(posterior)                 # to extract posterior samples from stanfit objects  
 library(brms)                      # bayesian regression models using stan 
-
+library(HDInterval)                # for HDI credible intervals 
 
 #### Clear  environment 
 rm(list = ls())   
 
-
-# colours
+#### colours
 j_blue <- rgb(0, 112/255, 192/255)
 j_green <- rgb(87/255, 167/255, 46/255)
+
+
+#### Set seed for reproducibility
+set.seed(22)
 ```
 
 ## Theory
@@ -132,7 +135,7 @@ N_star_chemo <- function(d, m, u, S, k, q) {
 
 We have empirical estimates for $\mu_{max}$, $k$, and $Q$ *(note that we have an estimate for yield, which is the inverse of the quota)*. We know the range of dilution rates we used and we are simulating $N$ and $R$. That just leaves $S$ - the supply resource concentration. We used 0.05% glucose as our base media - so $S$ is just 0.05. The units of resources with our parameterized model are R  = 1 is 10 mg/ml of glucose. The empirically estimated parameters are in terms of OD for $N$, so the predictions should in theory align with our results. 
 
-Extract the mean estimates and 100 random posterior draws to propogate uncertainty. 
+Extract the mean estimates and 100 random posterior draws to propagate uncertainty. 
 
 ```{r}
 # read in the model fit
@@ -414,81 +417,318 @@ write.csv(prediction_posteriors, "data/theory/prediction_posteriors.csv", row.na
 
 
 
-
-
-
-
-
-
-
-
-
-
 ### Figure 1B
 
-Compare theoretical predictions to empirical results. Fit a power model to the empirical data to quantify shape of observed density dependence. See `3-supplementary-models.Rmd` for details on the model selection and fitting for the empirical data.
+Compare theoretical predictions to empirical results. First we need to fit a model to the empirical data to quantify the degree of superlinearity. We'll use the inverse of the theta logistic model: 
+
+$$
+N=K\left(1-\frac{g}{r}\right)^{\frac{1}{\theta}}
+$$
+
+See `3-supplementary-models.Rmd` for details on the model selection and fitting for the empirical data. Many other modelling approaches (e.g., inverse theta logistic in `brms`, power model, polynomials) find superlinearity as well. Here, we'll use a grid based approach that is very transparent and that can overcome MCMC issues with the boundary where the parameter r can't be lower than the observed g values. 
 
 
-```{r, include = F}
-chemo_dd_eqs_av <- read.csv("data/processed/equilibrium_samples_av.csv")
-
-power_model <- brm(
-  # Model formula (parameters to fit are identified and nl flag is set)
-  bf(od_blanked ~ a * (dilution_rate^(1/b)) + c, 
-    a ~ 1,  
-    b ~ 1,  
-    c ~ 1,  
-    nl = TRUE
-  ),
-  # Data to use
-  data = chemo_dd_eqs_av,
-  
-  # Errors are gamma with identity link function
-  family = Gamma(link = "identity"),
-  
-  # Priors
-  prior = c(
-    prior(uniform(-5, 5), nlpar = "a", lb = -5, ub = 5),
-    prior(uniform(0, 2), nlpar = "b", lb = 0, ub = 2),
-    prior(uniform(0, 2), nlpar = "c", lb = 0, ub = 2)
-  ),
-  
-  # Hyperparameters
-  iter = 3000, 
-  warmup = 1500, 
-  chains = 4,
-  control = list(adapt_delta = 0.9, max_treedepth = 10)
-)
-
-```
+Load data 
 
 ```{r}
-summary(power_model)
-plot(power_model)
-pp_check(power_model, type = "scatter_avg")
+exp_data <- read.csv("data/processed/equilibrium_samples_av.csv")
+
+# rename variables
+exp_data$g <- exp_data$dilution_rate
+exp_data$Neq_dat <- exp_data$od_blanked
 ```
 
+Define the function we are fitting. Note the max function, which ensures that the predicted equilibrium density is never negative. 
+
+```{r}
+Neq <- function(K, g, r, theta) {
+  return(K * max(0, (1 - g/r))^(1/theta))
+}
+```
+
+Computing posterior probabilities over parameter grid. 
+
+First, we set up a grid of parameter values to screen:
+
+```{r}
+grid <- crossing(K = seq(0.15, 0.25, length.out = 20),
+                 r = seq(0.8, 1.15, length.out = 50),
+                 theta = seq(0.5, 10, length.out = 50),
+                 sigma = seq(0.01, 0.1, length.out = 10))
+
+# Choosing range for sigma
+# quick check of variability in observed data
+#sd(data$od_blanked)
+```
+
+Next, we add some priors that are fairly broad but still include realistic values:
+
+```{r}
+grid <- grid |>
+  mutate(
+    log_prior_K = dunif(K, min = 0.15, max = 0.25, log = TRUE),
+    log_prior_r = dunif(r, min = 0.8, max = 1.15, log = TRUE),
+    log_prior_theta = dunif(theta, min = 0.5, max = 10, log = TRUE),
+    log_prior_sigma = dunif(sigma, min = 0.01, max = 0.1, log = TRUE),
+    log_prior = log_prior_K + log_prior_r + log_prior_theta + log_prior_sigma
+  )
+```
+
+Now we calculate the log-likelihood of the parameter combinations in the grid, given the data:
+
+```{r}
+#| eval: true # true to actually run it
+grid <- grid |>
+  rowwise() |>
+  mutate(
+    mu = list(sapply(exp_data$g, function(x) Neq(K, x, r, theta))),
+    log_liks = list(dnorm(exp_data$Neq_dat, mean = mu, sd = sigma, log = TRUE)),
+    log_lik = sum(log_liks)
+  ) |>
+  ungroup()
+```
+
+Finally, we can combine the likelihood and priors to obtain the posterior probabilities:
+
+```{r}
+#| eval: true # true to actually run it
+grid <- grid |>
+  mutate(log_posterior = log_lik + log_prior)
+
+max_log_post <- max(grid$log_posterior)
+log_sum_exp_post  <- log(sum(exp(grid$log_posterior - max_log_post))) + max_log_post
+
+max_log_prior <- max(grid$log_prior)
+log_sum_exp_prior  <- log(sum(exp(grid$log_prior - max_log_prior))) + max_log_prior
+
+grid <- grid |>
+  mutate(posterior = exp(log_posterior - log_sum_exp_post)) |>
+  mutate(prior = exp(log_prior - log_sum_exp_prior))
+
+rm(max_log_post, log_sum_exp_post, max_log_prior, log_sum_exp_prior)
+```
+
+To visualise these results, we can first plot the individual, marginal posterior probabilities for each parameter. In these plots, black lines show the posterior probabilities, blue lines the prior probabilities:
+
+```{r, fig.height=2, fig.width=8}
+p1 <- grid |>
+  group_by(K) |>
+  filter(!is.nan(posterior)) |>
+  summarise(marginal_posterior = sum(posterior),
+            marginal_prior = sum(prior),
+            .groups = "drop") |>
+  ggplot() +
+    geom_line(aes(x = K, y = marginal_posterior)) +
+    geom_line(aes(x = K, y = marginal_prior), col = "blue") +
+    labs(y = "Probability", x = "K") +
+    theme_bw()
+
+p2 <- grid |>
+  group_by(r) |>
+  filter(!is.nan(posterior)) |>
+  summarise(marginal_posterior = sum(posterior),
+            marginal_prior = sum(prior),
+            .groups = "drop") |>
+  ggplot() +
+  geom_line(aes(x = r, y = marginal_posterior)) +
+  geom_line(aes(x = r, y = marginal_prior), col = "blue") +
+  labs(y = "Probability", x = "r") +
+  theme_bw()
+
+p3 <- grid |>
+  group_by(theta) |>
+  filter(!is.nan(posterior)) |>
+  summarise(marginal_posterior = sum(posterior),
+            marginal_prior = sum(prior),
+            .groups = "drop") |>
+  ggplot() +
+  geom_line(aes(x = theta, y = marginal_posterior)) +
+  geom_line(aes(x = theta, y = marginal_prior), col = "blue") +
+  labs(y = "Probability", x = "theta") +
+  theme_bw()
+
+p4 <- grid |>
+  group_by(sigma) |>
+  filter(!is.nan(posterior)) |>
+  summarise(marginal_posterior = sum(posterior),
+            marginal_prior = sum(prior),
+            .groups = "drop") |>
+  ggplot() +
+  geom_line(aes(x = sigma, y = marginal_posterior)) +
+  geom_line(aes(x = sigma, y = marginal_prior), col = "blue") +
+  labs(y = "Probability", x = "sigma") +
+  theme_bw()
+
+plot_grid(p1, p2, p3, p4, nrow = 1)
+
+rm(p1, p2, p3, p4)
+```
+
+We can also randomly draw parameter combinations from the posterior distribution (weighted by their posterior probabilities) and then plot the resulting estimated curve for each of them:
+
+```{r, fig.width=4, fig.height=4}
+p <- ggplot() +
+  geom_line() +
+  labs(y = "Nhat", x = "g") +
+  theme_bw()
+
+is <- sample(1:nrow(grid), 100, replace = TRUE, prob = grid$posterior)
+for (i in is) {
+  smpl <- tibble(g_true = seq(0, 1.1, by = 0.001)) |>
+    rowwise() |>
+    mutate(Neq_smpl = Neq(grid$K[i], g_true, grid$r[i], grid$theta[i]))
+  p <- p + geom_line(aes(g_true, Neq_smpl), data = smpl, col = "grey", alpha = 0.1)
+}
+
+p <- p +
+  geom_point(aes(g, Neq_dat), data = exp_data)
+  
+print(p)
+
+rm(p, smpl, is, i)
+```
+
+Median prediction (based on median parameter values) and 95% HDI (based on predictions from posterior predictive distribution). 
+
+```{r, fig.width=4, fig.height=4}
+# Step 1: Set up g values and sample from posteriors (store indices of samples)
+g_seq <- seq(0, 1.1, length = 100)
+n_samples <- 2000
+sample_indices <- sample(1:nrow(grid), n_samples, replace = TRUE, prob = grid$posterior)
+
+
+#### as an aside get the predictions based on median/mean parameter values ..
+samples <- grid[sample_indices, ]
+median_pred <- tibble(g = g_seq) |>
+  rowwise() |>
+  mutate(Neq = Neq(median(samples$K), g, median(samples$r), median(samples$theta)))
+mean_pred <- tibble(g = g_seq) |>
+  rowwise() |>
+  mutate(Neq = Neq(mean(samples$K), g, mean(samples$r), mean(samples$theta)))
+
+# ... or draw that has the highest posterior probability
+max_prob_draw <- grid[which.max(grid$posterior), ]
+max_prob_pred <- tibble(g = g_seq) |>
+  rowwise() |>
+  mutate(Neq = Neq(max_prob_draw$K, g, max_prob_draw$r, max_prob_draw$theta))
+
+
+# Step 2: Compute Neq for each sample across all g
+# This will generate a long-format data frame with each g and each sample's predicted Neq
+all_samples_df <- map_dfr(sample_indices, function(i) {
+  Neq_vals <- map_dbl(g_seq, function(g_val) {
+    Neq(grid$K[i], g_val, grid$r[i], grid$theta[i])
+  })
+  
+  tibble(
+    g = g_seq,
+    Neq = Neq_vals,
+    sample_id = i
+  )
+})
+
+# Step 3: Summarise posterior predictions at each g
+## quantile credible intervals
+#credible_df <- all_samples_df |>
+#  group_by(g) |>
+#  summarise(
+#    Neq_lower = quantile(Neq, 0.025, na.rm = TRUE),
+#    Neq_median = median(Neq, na.rm = TRUE),
+#    .groups = "drop"
+#    Neq_upper = quantile(Neq, 0.975, na.rm = TRUE),
+#  ) 
+
+## HDI credible intervals
+credible_df <- all_samples_df |>
+  group_by(g) |>
+  summarise(
+    hdi_vals = list(hdi(Neq, credMass = 0.95)),
+    Neq_median = median(Neq, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(
+    Neq_lower = map_dbl(hdi_vals, ~ .x[1]),
+    Neq_upper = map_dbl(hdi_vals, ~ .x[2])
+  ) |>
+  select(-hdi_vals)
+
+
+
+# Step 4: Plot the credible intervals
+ggplot() +
+  geom_ribbon(data = credible_df, aes(x = g, ymin = Neq_lower, ymax = Neq_upper), 
+              fill = "grey80", alpha = 0.5) +
+  geom_line(data = credible_df, 
+            aes(x = g, y = Neq_median), color = "black") +
+  geom_point(data = exp_data, aes(x = g, y = Neq_dat), size = 1.5) + 
+  geom_line(data = max_prob_pred, 
+            aes(x = g, y = Neq), col = "red", linetype = "dashed") +
+  geom_line(data = median_pred, 
+            aes(x = g, y = Neq), col = "blue", linetype = "dashed") +
+  geom_line(data = mean_pred, 
+            aes(x = g, y = Neq), col = "green", linetype = "dashed") +  
+  labs(x = "g", y = "N") +
+  theme_bw()
+
+rm(all_samples_df, g_seq, n_samples, sample_indices, mean_pred, 
+   max_prob_draw, max_prob_pred, samples, Neq)
+
+```
+
+Median from posterior predictive distribution and the prediction based on median parameters almost perfectly overlap, so plot the inverse theta logistic with median parameter values for interpretability. 
+
+
+Estimated theta 
+
+```{r}
+# Sample indices from grid weighted by posterior
+samples <- sample(1:nrow(grid), 1000, replace = TRUE, prob = grid$posterior)
+
+# Extract theta values for those samples
+theta_samples <- grid$theta[samples]
+
+# Calculate median and 95% credible intervals from the samples
+median_theta <- median(theta_samples)
+lower_theta <- quantile(theta_samples, 0.025)
+upper_theta <- quantile(theta_samples, 0.975)
+
+hdi_theta <- hdi(theta_samples, credMass = 0.95)
+
+cat(sprintf("Predicted theta was %.3f (95%% HDI: %.3f - %.3f)\n",
+            median_theta, hdi_theta[1], hdi_theta[2]))
+
+cat(sprintf("Predicted theta was %.3f (95%% credible interval: %.3f - %.3f)\n",
+            median_theta, lower_theta, upper_theta))
+
+rm(samples, theta_samples, median_theta, lower_theta, upper_theta, hdi_theta)
+```
+
+
+Figure 1B
+
 ```{r, fig.height=8, fig.width=8}
+# extract median parameter estimates from inverse theta model
+samples <- grid[sample(1:nrow(grid), 1000, replace = TRUE, prob = grid$posterior), ]
+median_theta <- median(samples$theta)
+median_K <- median(samples$K)
+median_r <- median(samples$r)
 
-################### model predictions ############################
-conditional_effects_data <- conditional_effects(power_model)
-predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
+# inverse theta logistic with median parameter estimates
+g_seq <- seq(0, median_r, length = 500)
+N_curve <- median_K * (1 - (g_seq / median_r)) ^ (1 / median_theta)
+curve_data <- data.frame(g = g_seq, N = N_curve)
 
-
-ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate)) +
+# plot the experimental data with inverse theta and also model predictions
+ggplot(data = exp_data, aes(y = Neq_dat, x = g)) +
   labs(
     y = "Optical Density", x = "Dilution rate (ml/hour/ml)") +
 
-  geom_ribbon(
-    data = predicted_data,
-    aes(ymin = lower__, ymax = upper__, x = dilution_rate),
-    alpha = 0.4, inherit.aes = FALSE, fill = j_green, color = NA
-  ) +
-  
-  geom_line(data = predicted_data, 
-            aes(y = estimate__, x = dilution_rate), 
-            color = j_green, size = 2, linetype = "dashed") +
-  
+  geom_ribbon(data = credible_df, aes(x = g, ymin = Neq_lower, ymax = Neq_upper), 
+              inherit.aes = FALSE, fill = j_green, alpha = 0.4, color = NA) +
+
+  geom_line(data = curve_data, 
+            aes(x = g, y = N), 
+            col = j_green, size = 2, linetype = "dashed") +
   
   geom_line(
     data = prediction_posteriors,
@@ -499,7 +739,6 @@ ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate)) +
     data = prediction,
     aes(y = N_star, x = dilution_rate),
     color = j_green, size = 1, linetype = "solid", alpha = 1) +
-  
   
   geom_point(colour = j_green, size = 5, alpha = 0.8) +
   
@@ -514,20 +753,14 @@ ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate)) +
 
 ```{r, fig.height=4, fig.width=4}
 
-# extract mean parameter estimates from power model 
-posterior <- as_draws_df(power_model)
-a <- mean(posterior$`b_a_Intercept`)
-c <- mean(posterior$`b_c_Intercept`)
-b <- mean(posterior$`b_b_Intercept`)
-
-# fit the inverse power model to the data (for density dependence perspective)
+# plot the theta logistic with median parameter estimates (for density dependence perspective)
 od_seq <- seq(0, 0.2, by = 0.001)
-dilution_curve <- ((od_seq - c) / a) ^ b
+dilution_curve <- median_r * (1 - (od_seq / median_K)^ median_theta)
 curve_data <- data.frame(od_blanked = od_seq, dilution_rate = dilution_curve) %>%
   filter(dilution_rate > 0)
 
 # plot
-ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate)) +
+ggplot(exp_data, aes(x = od_blanked, y = dilution_rate)) +
   labs(
     x = "Density",
     y = "Growth"
@@ -543,9 +776,8 @@ ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate)) +
             panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5))
 
 # clean up environment 
-rm(a, b, c, dilution_curve, od_seq, chemo_dd_eqs_av, conditional_effects_data,
-   curve_data, posterior, power_model, predicted_data, 
-   prediction, prediction_posteriors)
+rm(median_theta, median_K, median_r, dilution_curve, od_seq, exp_data, 
+   curve_data, grid, median_pred, samples, g_seq, N_curve)
 
 ```
 
