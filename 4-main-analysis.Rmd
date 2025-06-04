@@ -718,6 +718,42 @@ cat(sprintf("Predicted theta was %.3f (95%% credible interval: %.3f - %.3f)\n",
 rm(samples, theta_samples, median_theta, lower_theta, upper_theta, hdi_theta)
 ```
 
+Estimated r and K 
+
+```{r}
+# Sample indices from grid weighted by posterior
+samples <- sample(1:nrow(grid), 10000, replace = TRUE, prob = grid$posterior)
+
+# Extract r and K values for those samples
+r_samples <- grid$r[samples]
+K_samples <- grid$K[samples]
+
+## r ## 
+median_r <- median(r_samples)
+lower_r <- quantile(r_samples, 0.025)
+upper_r <- quantile(r_samples, 0.975)
+hdi_r <- hdi(r_samples, credMass = 0.95)
+cat(sprintf("Predicted r was %.3f (95%% HDI: %.3f - %.3f)\n",
+            median_r, hdi_r[1], hdi_r[2]))
+cat(sprintf("Predicted r was %.3f (95%% credible interval: %.3f - %.3f)\n",
+            median_r, lower_r, upper_r))
+
+## K ## 
+median_K <- median(K_samples)
+lower_K <- quantile(K_samples, 0.025)
+upper_K <- quantile(K_samples, 0.975)
+hdi_K <- hdi(K_samples, credMass = 0.95)
+cat(sprintf("Predicted K was %.3f (95%% HDI: %.3f - %.3f)\n",
+            median_K, hdi_K[1], hdi_K[2]))
+cat(sprintf("Predicted K was %.3f (95%% credible interval: %.3f - %.3f)\n",
+            median_K, lower_K, upper_K))
+
+rm(samples, r_samples, K_samples, median_r, lower_r, upper_r, hdi_r,
+   median_K, lower_K, upper_K, hdi_K)
+```
+
+
+
 
 Figure 1B
 
