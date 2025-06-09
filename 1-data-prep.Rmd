@@ -12,7 +12,7 @@ author: "James Orr"
 
 ## Summary
 
-This R notebook is used for organising the data (colony counts, optical density single reads, outflow volumes, chibio optical density timeseries) from the density-dependence experiments with e. coli in chemostats in the Letten lab. 
+This R notebook is used for organising the data (colony counts, optical density, outflow volumes, chibio optical density timeseries) from the density-dependence experiments with *E. coli* in chemostats in the Letten lab. 
 
 dd1-dd4 were conducted by Kaleigh Davis but dd1 failed and produced no data. dd5-dd7 were conducted by James Orr and Alicia Williams but dd5 failed and produced no data. Experiments that are used in this study are: dd2, dd3, dd4, dd6, and dd7 
 
@@ -108,7 +108,7 @@ Final cfu dataframe
 cfu <- cfu %>%
   select(c(experiment_replicate, day, ID, cfu_ul))
 
-# there were issue with the CFU data from day 3 of dd6 - serial dilution probably went wrong for two data points that were an order of magnitude higher than all other data. 
+# there were issue with the CFU data from day 3 of dd6 - serial dilution went wrong for two data points, which were an order of magnitude higher than all other data. No issues with OD data, which is used for the analysis. 
 
 cfu <- cfu %>%
   mutate(cfu_ul = if_else(experiment_replicate == "dd6" & 
@@ -162,7 +162,7 @@ Calculate dilution rate and final cleaning of outflow data. Dilution rate is vol
 
 The volume of the culture for most of a cycle is 21ml. However, between inflow and outflow there is a larger volume of liquid in the reactor. The bigger the dilution rate the greater this value is. Therefore we need to calculate the time-average volume in the chemostat. 
 
-First step will be to estimate the average time between inflow and outflow pumps. We need the Chi.Bio log files for this and we only have these files for dd7. So across all pumps we'll take the average of the time between inflow and outflow and use this single average value for all experiments and all reactors. It isn't perfect, but it is a good approximation as experimental procedures were consistent. 
+First step will be to estimate the average time between inflow and outflow pumps. We need the Chi.Bio log files for this and we only have these files for dd7. So across all pumps we'll take the average of the time between inflow and outflow and use this single average value for all experiments and all reactors. It is a good approximation as experimental procedures were consistent. 
 
 ```{r}
 log_file <- readLines("data/chibio/dd7/dd7-log.txt")
@@ -196,7 +196,7 @@ log_df <- log_df %>%
 log_df <- log_df %>%
   mutate(datetime = ymd_hms(paste(date, time), truncated = 3))
 
-# remove the first 5 hours and last 5 hours (set up and shut down)
+# remove the first 5 hours and last 5 hours (set up and shut down of experiment)
 # define start and end cutoffs and filter the dataframe
 start_cutoff <- min(log_df$datetime, na.rm = TRUE) + hours(5)
 end_cutoff <- max(log_df$datetime, na.rm = TRUE) - hours(5)
@@ -204,7 +204,7 @@ log_df <- log_df %>%
   filter(datetime > start_cutoff, datetime < end_cutoff)
 
 # there are matching numbers of inflows and outflows, starting at M0 inflow
-# ending on outflow M7 - so we have 4208/2/8 = 263 20 minute cycles 
+# ending on outflow M7 - so we have 4208/2/8 = 263 20 minute cycles, perfect! 
 
 # create variable for reactor and inflow or outflow
 log_df <- log_df %>%
@@ -230,18 +230,19 @@ time_difference <- inflow_pumps %>%
                                          units = "secs"))) %>%
   select(-event_type)
 
-# calculate average time difference overall and per reactor 
-
+# calculate average time difference overall 
 time_difference_average <- mean(time_difference$time_diff, na.rm = TRUE)
 
+# calculate average time per reactor 
 time_difference_reactors <- time_difference %>%
   group_by(reactor) %>%
   summarise(mean_time_diff = mean(time_diff, na.rm = TRUE))
 
+# clean environment
 rm(log_df, inflow_pumps, outflow_pumps, end_cutoff, start_cutoff, log_file)
 ```
 
-On average the time between inflow and outflow is 141.85 seconds or **11.8%** of a cycle. No significant changes over time (about two seconds over four days) and no big differences between reactors (range of 129 to 153 seconds). 
+On average the time between inflow and outflow is 141.85 seconds or **11.8%** of a cycle. No significant changes over time (about two seconds over four days) and no big differences between reactors (range of 129 to 153 seconds). So we can be confident that using this average time is a good approximation for all experiments and reactors.
 
 Next we need to calculate the volumes associated with an inflow setting. I can use the outflow volumes to work this out. Because inflow pumps run every 20 minutes, they run 72 times a day. Therefore daily outflow volume divided by 72 will be the volume of water that comes into the chemostats at each inflow cycle. Adding this volume to 21 will give the max liquid volume of the chemostats in a given cycle. 
 
@@ -265,7 +266,6 @@ outflow <- outflow %>%
   
   # option to just use minimum volume 
   #mutate(dilution_rate = outflow_per_hour_mean/21) %>%
-
 
   # rename some variables to match cfu and od
   rename(experiment_replicate = experiment_rep) %>%
@@ -332,7 +332,7 @@ od <- od %>%
 
 ## Chibio timeseries
 
-This is just for illustrative purposes. Use dd7 as this was one of the only experiments where the system wasn't restarted at some stage (so ODs are uninterrupted and not reblanked) and where the full spectrum of dilution rates were tested. 
+This is just for illustrative purposes. Use dd7 as this was only experiments where the system wasn't restarted at some stage (so ODs are uninterrupted and not reblanked) and where the full spectrum of dilution rates were tested. 
 
 Load and merge the data
 
@@ -427,7 +427,7 @@ chemo_dd <- chemo_dd %>%
 
 As we are only interested in samples taken while populations are at equilibrium, we need to think carefully about population dynamics and about the potential impacts of evolution. We know that populations in the low dilution rates can overshoot the equilibrium and then come back down after a few days, and we know that populations in the highest dilution rates take much longer to reach equilibrium.   
 
-Furthermore, evolution could potentially increase equilibrium densities, which would make our estimates of density dependence less accurate. Evolution could be especially important at high dilution rates (strongest selection pressure but lower population sizes) and intermediate dilution rates (still a relatively strong selection pressure and high population sizes). Supporting this concern is the fact that biofilms were observed on the walls of the chemostats in some intermediate and high dilution rates at the end of dd4 and dd6.  
+Furthermore, evolution could potentially increase equilibrium densities, which would make our estimates of density dependence less accurate. Evolution could be especially important at high dilution rates (strongest selection pressure but lower population sizes) and intermediate dilution rates (still a relatively strong selection pressure and high population sizes). Supporting this concern is the fact that biofilms were observed on the walls of the chemostats in some intermediate and high dilution rates at the end of dd4 (seen by KD and AL) and dd6 (seen by JO, AW and AL).  
 
 ## Heuristics for sample selection
 
@@ -446,6 +446,8 @@ The low to intermediate cutoff is pretty easy - all samples with dilution rate o
 The intermediate to high cut-off is a bit more difficult to choose. Looking at the OD per day plots for each replicate (especially dd4 and dd7), there is gradual increases in *all* dilutions above 0.75 and the inflow settings corresponding to these dilution rates lead to slow population growths that take several days to reach equilibrium. Below 0.75 and down to 0.25 there are some populations that increased each day and some that decreased each day, and some that stayed the same. These variable results could be related to noise or evolution. 
 
 Based on these observations (illustrated in `2-exploratory-plots.RMD`), I'll go with 0.1 and 0.7 as the two cutoffs. Our results are not sensitive to these choices. 
+
+Varying these cutoffs or ignoring the heuristics and just choosing the final day of the experiments doesn't qualtitatively change the result we find (of superlinear density dependence). Fred Smith did a similar experiment in 1963 with Daphnia and an expanding culture approach rather than a harvest rate approach - he had similar issues deciding when populations were at equilibrium. When talking about the samples he removed he said: "Perhaps more should be omitted in some cases, but more elegant screening methods would seem to enhance the possibility of bias." We've tried to strike a balance between mechanistic understanding and amount of screening to avoid this possibility of bias as well.
 
 ## Different filtering procedures
 

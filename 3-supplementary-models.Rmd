@@ -10,9 +10,9 @@ author: "James Orr"
 
 This notebook uses the processed data from `1-data-prep.Rmd` to create supplementary models for our study on the shape of density dependence of *E. coli*. Our goal was to using a bayesian regression framework to fit non-linear models to the empirical data to estimate the shape of density dependence. 
 
-First we considered an **inverted theta-logistic model**, but this had fitting issues due to it's form. Specifically estimates for r (maximum per capita growth rate) could not be equal to or above observations of dilution rate due to the term $(1 - \frac{g}{r})^\frac{1}{\theta}$. Various transformations and incorporation of measurement error improved things but posteriors for theta were still skewed/bounded. 
+We considered an **inverted theta-logistic model**, but this had some fitting issues due to it's form. Specifically estimates for r (maximum per capita growth rate) could not be equal to or below observations of dilution rate due to the term $(1 - \frac{g}{r})^\frac{1}{\theta}$. Various transformations and incorporation of measurement error improved things but posteriors for theta were still skewed/bounded. 
 
-We then used a simple **power model** that had a single parameter that determined the shape of density dependence, just like the theta logistic model. This model fit the data very well so we use that to quantify the superlinear shape of density dependence we observed in our data.
+We also used a simple **power model** that had a single parameter that determined the shape of density dependence, just like the theta logistic model. This model fit the data very well and was strong support for concave/decelerating density dependence. However, it will not be familiar to those who study density dependence so it is not reported in the main text due to space limitations. 
 
 
 ### Set up environment 
@@ -86,17 +86,17 @@ ggplot(chemo_dd_eqs_av, aes(y = od_blanked,
   scale_shape_manual(values = c(15:19), name = "Replicate") +
   theme_minimal()
 ```
-We'll use Gamma error distribution with the identity link to account for the fact that we can't have negative OD values. 
+We'll use Gamma distribution with the identity link to account for the fact that we can't have negative OD values. 
 
 **Priors** 
 
-$\theta$ describes the curvature of the model, $r$ describes the intercept with the x axis (maximum growth rate), $K$ describes the intercept with the y axis (carrying capacity). Based on this prior knowledge, we can provide some semi-informative priors from visually inspecting the data. 
+$\theta$ describes the curvature of the model, $r$ describes the intercept with the x axis (maximum growth rate), $K$ describes the intercept with the y axis (carrying capacity). Based on this prior knowledge, we can provide some biologically informed priors by just visually inspecting the data. 
 
-- We'll say that $r$ will fall somewhere between 0.9 and 1.2 
+- We'll say that $r$ will fall somewhere between 0.8 and 1.15 
 
-- We'll say that $K$ will fall somewhere between 0.1 and 0.25
+- We'll say that $K$ will fall somewhere between 0.15 and 0.25
 
-- We'll give loose priors for $\theta$, as this is the main parameter we're interest in and don't want to potentially bias the results. So we'll say it falls somewhere between -0.5 (highly sublinear) and 5 (highly superlinear).
+- We'll give loose priors for $\theta$, as this is the main parameter we're interest in and don't want to potentially bias the results. So we'll say it falls somewhere between -0.5 (highly sublinear) and 10 (highly superlinear).
 
 ```{r, include = F}
 
@@ -122,9 +122,9 @@ model <- brm(
   
   # priors 
   prior = c(
-    prior(uniform(0.9, 1.2), nlpar = "r", lb = 0.9, ub = 1.2),  
-    prior(uniform(0.10, 0.25), nlpar = "K", lb = 0.10, ub = 0.25), 
-    prior(uniform(-0.5, 5), nlpar = "theta", lb = -0.5, ub = 5)  
+    prior(uniform(0.8, 1.15), nlpar = "r", lb = 0.8, ub = 1.15),  
+    prior(uniform(0.15, 0.25), nlpar = "K", lb = 0.15, ub = 0.25), 
+    prior(uniform(-0.5, 10), nlpar = "theta", lb = -0.5, ub = 10)  
   ),
   
   # hyperparameters 
@@ -379,8 +379,6 @@ Posteriors look a lot better now, but alpha and theta are way more closely corre
 
 ### Power model 
 
-*Just a note, I had also looked at simple polynomial models and a cubic model outperformed a quadratic one and linear one. Cubic model fit the data a lot better than the flipped theta-logistic (not a very flexible model). Very simplistic way of modelling curvature - with linear model with polynomial terms. Problem was that the cubic (which allowed saturation) didn't have a single parameter that described curvature* 
-
 A simple power model that has a single parameter that describes its curvature is: 
 
 $$ y = ax^\frac{1}{\beta} + c $$
@@ -569,210 +567,6 @@ p2 <- ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate)) +
 plot_grid(p1, p2)
 
 ```
-
-
-
-### Flipped power model 
-
-The power model seems like a good model for density dependence.. So, if we are fitting the inverted data, should we use the flipped power model instead? 
-
-$$x\ =\ \left(\frac{y-c}{a}\right)^{B}$$
-
-```{r, include = F}
-
-f_power_model <- brm(
-  # Model formula (parameters to fit are identified and nl flag is set)
-  bf(od_blanked ~ ((dilution_rate - c)/a)^b, 
-    a ~ 1,  
-    b ~ 1,  
-    c ~ 1,  
-    nl = TRUE
-  ),
-  # Data to use
-  data = chemo_dd_eqs_av,
-  
-  # Errors are gamma with identity link function
-  family = Gamma(link = "identity"),
-  
-  # Priors
-  prior = c(
-    prior(uniform(-50, 0), nlpar = "a", lb = -50, ub = 0),
-    prior(uniform(0, 2), nlpar = "b", lb = -2, ub = 2),
-    prior(uniform(0.5, 1.5), nlpar = "c", lb = 0.5, ub = 1.5)
-  ),
-  
-  # Hyperparameters
-  iter = 3000, 
-  warmup = 1500, 
-  chains = 4,
-  control = list(adapt_delta = 0.9, max_treedepth = 10)
-)
-
-```
-
-```{r}
-summary(f_power_model)
-plot(f_power_model)
-conditional_effects(f_power_model)
-pairs(f_power_model)
-pp_check(f_power_model, type = "scatter_avg")
-```
-
-
-```{r}
-# Extract predictions from the model
-conditional_effects_data <- conditional_effects(f_power_model)
-predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
-posteriors <- posterior_samples(f_power_model)
-a <- mean(posteriors$`b_a_Intercept`)
-b <- mean(posteriors$`b_b_Intercept`)          
-c <- mean(posteriors$`b_c_Intercept`)
-
-# Power model for density dependence with estimated parameters
-od_seq <- seq(0, 0.25, by = 0.001)
-dilution_curve <- a * od_seq^(1/b) + c
-curve_data <- data.frame(od_blanked = od_seq, 
-                         dilution_rate = dilution_curve)
-curve_data <- curve_data %>% filter(dilution_rate > 0)
-
-
-
-
-# Model predictions and empirical observations
-p1 <- ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate)) +
-  geom_point() +
-  labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
-       title = "Growth-Density inversion") +
-  # brms model predictions
-  geom_line(data = predicted_data, aes(y = estimate__, 
-                                       x = dilution_rate)) +  
-  geom_ribbon(data = predicted_data, aes(ymin = lower__, 
-                                         ymax = upper__, 
-                                         x = dilution_rate), 
-              alpha = 0.2, inherit.aes = FALSE) + 
-  theme_minimal()
-
-# Density-dependent plot
-p2 <- ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate)) +
-  geom_point() +
-  labs(x = "OD", y = "Dilution rate (ml/hour/ml)", 
-       title = "Density dependence") +
-  geom_line(data = curve_data, aes(x = od_blanked, y = dilution_rate), 
-              color = "black", size = 1) +
-  
-  theme_minimal()
-
-
-plot_grid(p1, p2)
-
-```
-Flipped power model vs power model both give the same curvature (b less than 1, so superlinear). The saturating part of the curve is flipped between the two models, the flipped power model aligns close with the flipped theta logistic - so when you invert these, you get saturating point at maximum growth and low densities - this biologically makes the most sense to me, there must be such low densities that individuals aren't impacted by each other. However, the difference is really minor and probably not all that important given that we are just after the general shape (linear, superlinear, or sublinear). 
-
-
-
-
-### Theta-logistic model
-
-Fit the theta logistic to my data directly - theta will mean the same. R and K will be inverted. 
-
-
-```{r, include = F}
-
-model2 <- brm(
-  
-
-  # model formula (parameters to fit are identified and nl flag is set)
-  bf(
-    od_blanked ~ r * (1 - (dilution_rate / K)^ theta),
-    K ~ 1, 
-    r ~ 1, 
-    theta ~ 1, 
-    nl = TRUE
-  ),
-  
-  # data to use
-  data = chemo_dd_eqs_av,
-  
-  # errors are gamma with identity link function (OD can't be negative)
-  family = Gamma(link = "identity"), 
-  
-  # priors  (K and r have been swapped for this model)
-  prior = c(
-    prior(uniform(0.9, 1.2), nlpar = "K", lb = 0.9, ub = 1.2),  
-    prior(uniform(0.10, 0.25), nlpar = "r", lb = 0.10, ub = 0.25), 
-    prior(uniform(-0.5, 5), nlpar = "theta", lb = -0.5, ub = 5)  
-  ),
-  
-  # hyperparameters 
-  iter = 3000, warmup = 1500, chains = 4,
-  control = list(adapt_delta = 0.9,
-                 max_treedepth = 10),
-  
-)
-
-```
-
-```{r}
-summary(model2)
-plot(model2)
-conditional_effects(model2)
-pp_check(model, type = "scatter_avg")
-```
-
-
-```{r}
-# Extract predictions from the model
-conditional_effects_data <- conditional_effects(model2)
-predicted_data <- as.data.frame(conditional_effects_data$dilution_rate)
-posteriors <- posterior_samples(model2)
-r <- mean(posteriors$`b_r_Intercept`)
-K <- mean(posteriors$`b_K_Intercept`)          
-theta <- mean(posteriors$`b_theta_Intercept`)
-
-# Power model for density dependence with estimated parameters
-od_seq <- seq(0, 0.25, by = 0.001)
-dilution_curve <- K * (1 - (od_seq / r)) ^ (1 / theta)
-curve_data <- data.frame(od_blanked = od_seq, 
-                         dilution_rate = dilution_curve)
-curve_data <- curve_data %>% filter(dilution_rate > 0)
-
-
-# Model predictions and empirical observations
-p1 <- ggplot(chemo_dd_eqs_av, aes(y = od_blanked, x = dilution_rate)) +
-  geom_point() +
-  labs(y = "OD", x = "Dilution rate (ml/hour/ml)", 
-       title = "Growth-Density inversion") +
-  # brms model predictions
-  geom_line(data = predicted_data, aes(y = estimate__, 
-                                       x = dilution_rate)) +  
-  geom_ribbon(data = predicted_data, aes(ymin = lower__, 
-                                         ymax = upper__, 
-                                         x = dilution_rate), 
-              alpha = 0.2, inherit.aes = FALSE) + 
-  theme_minimal()
-
-# Density-dependent plot
-p2 <- ggplot(chemo_dd_eqs_av, aes(x = od_blanked, y = dilution_rate)) +
-  geom_point() +
-  labs(x = "OD", y = "Dilution rate (ml/hour/ml)", 
-       title = "Density dependence") +
-  geom_line(data = curve_data, aes(x = od_blanked, y = dilution_rate), 
-              color = "black", size = 1) +
-  theme_minimal()
-
-
-plot_grid(p1, p2)
-
-```
-
-
-As all we're after is an estimate for theta, maybe it is fine to fit it this way? We've fitted the actual theta-logistic model to the inverted data. This means that r and K have opposite meanings, but theta is still the same. For the density dependence persepctive, you just take the estimated parameters and plug them into the flipped theta logistic model. 
-
-Here theta is even more clearly above one than the theta from the flipped theta model (mean of 2.46, error of 0.49, l-95% CI of 1.66, and u-95% CI or 3.56).
-
-
-
-
 
 
 

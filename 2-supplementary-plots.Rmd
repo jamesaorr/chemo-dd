@@ -68,7 +68,7 @@ ggplot(all_samples, aes(y = od_blanked, x = dilution_rate, color = day)) +
   facet_wrap(~ experiment_replicate, scales = "free_y")
 ```
 
-Cutoff between low, intermediate, and high dilution rates. Only include up to and including day 4
+Cutoff between low, intermediate, and high dilution rates. Only with up to and including day 4
 
 ```{r, fig.height=4, fig.width=8}
 

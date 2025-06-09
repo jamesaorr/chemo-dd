@@ -8,7 +8,7 @@ output:
 author: "James Orr"
 ---
 
-This notebook uses the processed data from `1-data-prep.Rmd` and the estimated Monod parameters for the E. coli strain used in our study (in the fits sub folder) to make the predictions for density dependence based on consumer-resource theory. 
+This notebook uses the processed data from `1-data-prep.Rmd` and the estimated Monod parameters for the E. coli strain used in our study (in the fits sub folder) to make the predictions for density dependence. 
 
 
 ## Set up environment 
@@ -20,7 +20,7 @@ Load packages and clear environment
 library(tidyverse)                 # general data organisation
 library(deSolve)                   # solving differential equations
 library(cowplot)                   # arranging plots 
-library(posterior)                 # to extract posterior samples from stanfit objects  
+library(posterior)                 # to extract posterior samples 
 library(brms)                      # bayesian regression models using stan 
 library(HDInterval)                # for HDI credible intervals 
 
@@ -38,7 +38,7 @@ set.seed(22)
 
 ## Theory
 
-The model we'll use is a consumer-resource model for one resource (glucose) and one consumer (E. coli) where the resource uptake function is a Monod function and the resource supply function is a chemostat model. From previous work with this system, we know that this simple model so a very good job of describing the dynamics of E. coli in chemostats.
+The model we'll use is a consumer-resource model for one resource (glucose) and one consumer (E. coli) where the resource uptake function is a Monod function and the resource supply function is a chemostat model. From previous work with this system, we know that this simple model does a very good job of describing the dynamics of E. coli and glucose. 
 
 
 $$
@@ -109,7 +109,7 @@ pulse_fun <- function(t, state, parms) {
 
 We used Abrams’ approach – manipulating mortality rate and observing the resulting population densities at equilibrium – to study the density dependence of Escherichia coli (MG1655) growing in chemostats. However, in our system, dilution rate of the chemostat is equal to the mortality rate of the bacteria, as we assume that there is no additional consumer mortality. We therefore experimentally manipulated the dilution rate of the chemostats to control the mortality of the consumer. This deviation from Abrams’ precise approach – dilution rate is not a “neutral” parameter in the sense that it alters resource dynamics as well as consumer mortality – was necessary in our system, but it allowed us to isolate the qualitative effect of the consumers’ functional responses on their own density dependence. 
 
-You could argue that mortality was confounded in our experiment, but because we know exactly how it was confounded (resource dynamics also influenced by dilution rate), we can interpret the empirical observations as a form of density dependence (independent of resource dynamics) and we can make predictions for density dependence under different resource dynamics. 
+We can interpret the empirical observations as a form of density dependence (independent of resource dynamics) and we can make predictions for density dependence under resource dynamics that were not experimentally tested. 
 
 We can just simulate the consumer resource model under different dilution rates (where m = d) and plot equilibrium abundances against dilution rates. We can also analytically predict the shape of density dependence that we expect to see when d = m. We set the right hand side of the equations to zero and solve for $N$ and $R$. From the consumer equation:
 
@@ -133,7 +133,7 @@ N_star_chemo <- function(d, m, u, S, k, q) {
 
 ## Prediction
 
-We have empirical estimates for $\mu_{max}$, $k$, and $Q$ *(note that we have an estimate for yield, which is the inverse of the quota)*. We know the range of dilution rates we used and we are simulating $N$ and $R$. That just leaves $S$ - the supply resource concentration. We used 0.05% glucose as our base media - so $S$ is just 0.05. The units of resources with our parameterized model are R  = 1 is 10 mg/ml of glucose. The empirically estimated parameters are in terms of OD for $N$, so the predictions should in theory align with our results. 
+We have empirical estimates for $\mu_{max}$, $k$, and $Q$ *(note that we have an estimate for yield, which is the inverse of the quota)*. We know the range of dilution rates we used and we are simulating $N$ and $R$. That just leaves $S$ - the supply resource concentration. We used 0.05% glucose as our base media - so $S$ is just 0.05. The units of resources with our parameterized model are R = 1 is 10 mg/ml of glucose. The empirically estimated parameters are in terms of OD for $N$, so the predictions should in theory align with our results (particularly at low dilution rates that match batch cultures - how the models were parameterised - more closely). 
 
 Extract the mean estimates and 100 random posterior draws to propagate uncertainty. 
 
@@ -165,9 +165,7 @@ sumparams <- subset_draws(monod_draws, c('log_mu_max', 'log_Ks', 'log_q')) %>%
 
 mu_mean <- exp(sumparams$mean)[1]
 k_mean <- exp(sumparams$mean)[2]
-q_mean <- 1/exp(sumparams$mean)[3]
-
-##### q in this model is actually yield, so we need to convert it to quota (inverse)
+q_mean <- 1/exp(sumparams$mean)[3] # q in this model is actually yield, so we need to convert it to quota (inverse)
 
 
 posterior_samples <- monod_draws %>%
@@ -350,7 +348,7 @@ rm(output, output_df, params, params_fixed, prediction,
 ```
 
 
-Now that we know analytical prediction matches simulations, make analytical prediction that incorporates uncertainty from Monod parameter estimates. Here we are predicting what density dependence should have been observed by our experiment (where consumer mortality and dilution rate are equal)
+Now that we know analytical prediction matches simulations, we can make analytical prediction that incorporates uncertainty from Monod parameter estimates. Here we are predicting what density dependence should have been observed by our experiment (where consumer mortality and dilution rate are equal)
 
 
 ```{r, fig.width=4, fig.height=4}
@@ -402,8 +400,6 @@ ggplot() +
 
 rm(d, k, m, N_star, q, S, u)
 
-
-
 ```
 
 Save theoretical prediction.   
@@ -414,9 +410,6 @@ write.csv(prediction_posteriors, "data/theory/prediction_posteriors.csv", row.na
 ```
 
 
-
-
-
 ### Figure 1B
 
 Compare theoretical predictions to empirical results. First we need to fit a model to the empirical data to quantify the degree of superlinearity. We'll use the inverse of the theta logistic model: 
@@ -425,7 +418,7 @@ $$
 N=K\left(1-\frac{g}{r}\right)^{\frac{1}{\theta}}
 $$
 
-See `3-supplementary-models.Rmd` for details on the model selection and fitting for the empirical data. Many other modelling approaches (e.g., inverse theta logistic in `brms`, power model, polynomials) find superlinearity as well. Here, we'll use a grid based approach that is very transparent and that can overcome MCMC issues with the boundary where the parameter r can't be lower than the observed g values. 
+See `3-supplementary-models.Rmd` for details on alternative models and fitting approaches. Many other modelling approaches (e.g., inverse theta logistic in `brms`, power model, polynomials) find superlinearity as well. Here, we'll use a grid based approach that is very transparent and that can overcome MCMC issues with the boundary issue, where the parameter r can't be lower than the observed g values. 
 
 
 Load data 
@@ -461,6 +454,8 @@ grid <- crossing(K = seq(0.15, 0.225, length.out = 50),
 # quick check of variability in observed data
 #sd(exp_data$od_blanked)
 ```
+
+The number of values for each parameter is chosen to balance computational efficiency while still obtaining smooth posterior distributions for those parameters.
 
 Next, we add some priors that are fairly broad but still include realistic values:
 
@@ -515,15 +510,14 @@ rm(max_log_post, log_sum_exp_post, max_log_prior, log_sum_exp_prior)
 
 #write.csv(grid, "data/grid/grid.csv", row.names = FALSE)
 ```
-
-The grid above (50 x 150 x 50 x 20) has 7.5 million combinations of parameters, so it takes quite a while to run (~30 mins on an M1 MacBook Pro), so we can just load the grid from a previous run as well: 
+The grid above (50 x 150 x 50 x 20) has 7.5 million combinations of parameters, so it takes quite a while to run (~30 mins on an M1 MacBook Pro), so we can just load the grid from a previous run instead:
 
 ```{r}
 grid <- read.csv("data/grid/grid.csv")
 ```
 
 
-To visualise these results, we can first plot the individual, marginal posterior probabilities for each parameter. In these plots, black lines show the posterior probabilities, blue lines the prior probabilities:
+To visualise these results, we can first plot the posterior probabilities for each parameter. In these plots, black lines show the posterior probabilities, blue lines the prior probabilities:
 
 ```{r, fig.height=2, fig.width=8}
 p1 <- grid |>
@@ -579,6 +573,8 @@ plot_grid(p1, p2, p3, p4, nrow = 1)
 rm(p1, p2, p3, p4)
 ```
 
+Evidence of bimodality (theta logistic not flexible enough to fit the density dependence we see in our experiemnt), which is also obvious in the plots below.
+
 We can also randomly draw parameter combinations from the posterior distribution (weighted by their posterior probabilities) and then plot the resulting estimated curve for each of them:
 
 ```{r, fig.width=4, fig.height=4}
@@ -603,7 +599,7 @@ print(p)
 rm(p, smpl, is, i)
 ```
 
-Median prediction (based on median parameter values) and 95% credible intervals (based on predictions from posterior predictive distribution). Option to use HDI or quantile based credible intervals.  
+Median prediction (based on median parameter values) and 95% credible intervals (based on predictions from posterior predictive distribution). Option to use HDI or quantile based credible intervals, very similar results but more jagged errors around the prediction.  
 
 ```{r, fig.width=4, fig.height=4}
 # Step 1: Set up g values and sample from posteriors (store indices of samples)
@@ -899,7 +895,7 @@ The uncertainty around the Monod parameters only influences the density dependen
 
 The shape of density dependence will really depend on the underlying mortality of the system (separate form the harvest rate that is being manipulated in the Abram's approach). If there is no mortality, then per capita growth is just the Monod function. Adding in baseline mortality will change the window of density dependence that is being viewed. The parts of the density dependence curves above the dashed lines show you density dependence under three different baseline mortalities (for the three dilutions).
 
-Plot these 9 scenarios separately to avoid any biases. 
+Plot these 9 scenarios separately to avoid any visual biases. 
 
 ```{r, fig.width=5, fig.height=5}
 # Function to generate the plot
@@ -1058,7 +1054,7 @@ rm(output, output_df, params, initial_conditions, t)
 
 ### Pulsed resources
 
-The Abrams method (Growth-Density inversion) doesn't work so well here as the system doesn't ever reach a fixed point equilibrium (pulsed resources lead to cycling dynamics). Instead we can get per capita growth rates from the model directly and plot these against consumer density. 
+The Abrams method (Growth-Density inversion) doesn't work so well here as the system doesn't ever reach a fixed point equilibrium (pulsed resources lead to cycling dynamics for the consumer). Instead we can get per capita growth rates from the model directly and plot these against consumer density. 
 
 Growth under a single pulse of resources should lead to superlinear density dependence for type II consumers. Add resources at the start, and watch the consumers grow and the resources go down. 
 
@@ -1139,7 +1135,7 @@ rm(output, output_df, p1, p2, params, sim_results, initial_conditions, t)
 ```
 If we use multiple pulses the same results hold.
 
-The interval between pulses doesn't matter. Even short intervals where the resources aren't depleted fully between pulses doesn't turn the system into a chemostat style resources. There is no resource loss here other than through the consumers. Therefore there is no density dependence of resources for the consumer's to "inherit". 
+The interval between pulses doesn't matter. Even short intervals where the resources aren't depleted fully between pulses doesn't turn the system into a chemostat style resources. There is no resource loss here other than through the consumers. Therefore there is no density dependence of resources for the consumers to "inherit". 
 
 
 ```{r, echo = FALSE, include = FALSE}
@@ -1214,7 +1210,7 @@ rm(output, output_df, p1, p2, params, initial_conditions, t,
 
 The goal here is to create a 3 x 3 panel plot where the three resource dynamics (chemostat, logistic, pulsed) are crossed with three levels of mortality. 
 
-As the three resources dynamics lead to three different observed maximum growth rates, we can't give all three the same exact mortality values to represent high, medium, and low mortalities. A straightforward solution is to express mortality as a percentage of the observed maximum growth rate (from the Monod). Choosing something like 25%, 50%, and 75%  mortality (relative to max growth) shows the range of impacts that baseline mortality has on the observed density dependence. 
+As the three resources dynamics lead to three different observed maximum growth rates, we can't give all three the same exact mortality values to represent high, medium, and low mortalities. A straightforward solution is to express mortality as a percentage of the observed maximum growth rate (from the Monod). Choosing something like 25%, 50%, and 75%  mortality (relative to max growth) is the best way to show the full range of impacts that baseline mortality has on the observed density dependence. 
 
 The choices of dilution rate for the chemostat model and carrying capacity of resource for the logistic model are somewhat arbitrary. Here we will select the "middle" dilution rate that we tested in our experiment, which produces OD equilibrium densities for different harvest rates that are feasible in our system. For the logistic model, we'll select the highest carrying capacity that is possible before the system goes into cycles so that the densities of the consumers (OD) are closest to those seen in our experiments. 
 
