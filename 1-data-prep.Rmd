@@ -158,13 +158,18 @@ outflow <- outflow %>%
 #plot(outflow$inflow_setting, outflow$outflow_per_hour_mean)
 ```
 
-Calculate dilution rate and final cleaning of outflow data. Dilution rate is volume of media supplied per hour divided by the volume of the culture (standard approach in chemostat work).  
+Calculate dilution rate and final cleaning of outflow data. 
 
-The volume of the culture for most of a cycle is 21ml. However, between inflow and outflow there is a larger volume of liquid in the reactor. The bigger the dilution rate the greater this value is. Therefore we need to calculate the time-average volume in the chemostat. 
+In classic chemostat theory, dilution rate is volume of media supplied per hour divided by the volume of the culture:
 
-First step will be to estimate the average time between inflow and outflow pumps. We need the Chi.Bio log files for this and we only have these files for dd7. So across all pumps we'll take the average of the time between inflow and outflow and use this single average value for all experiments and all reactors. It is a good approximation as experimental procedures were consistent. 
+$$ D = F/ V $$
 
-```{r}
+where $F$ is the inflow/outflow and is volume/time (ml/hour) and $V$ is the volume of the culture (ml). This assumes perfect mixing and continuous flow, with instantaneous in = out, so the volume is constant at all times. However, our system does not perfectly follow chemostat assumptions because the inflow/outflow cycle is 20 minutes long and there is about 2 minutes intentionally left between inflow and outflow to allow for thorough mixing. 
+
+This originally made us question what volume to use for $V$. We originally tried to calculate dilution rate using the time-average volume in the chemostat by using information about the inflow and outflow timing and the volume of media (see below).
+
+
+```{r, eval = False}
 log_file <- readLines("data/chibio/dd7/dd7-log.txt")
 log_file <- log_file[-(1:5)] # Drop the first 5 lines (general info)
 
@@ -240,39 +245,58 @@ time_difference_reactors <- time_difference %>%
 
 # clean environment
 rm(log_df, inflow_pumps, outflow_pumps, end_cutoff, start_cutoff, log_file)
-```
 
-On average the time between inflow and outflow is 141.85 seconds or **11.8%** of a cycle. No significant changes over time (about two seconds over four days) and no big differences between reactors (range of 129 to 153 seconds). So we can be confident that using this average time is a good approximation for all experiments and reactors.
 
-Next we need to calculate the volumes associated with an inflow setting. I can use the outflow volumes to work this out. Because inflow pumps run every 20 minutes, they run 72 times a day. Therefore daily outflow volume divided by 72 will be the volume of water that comes into the chemostats at each inflow cycle. Adding this volume to 21 will give the max liquid volume of the chemostats in a given cycle. 
+# On average the time between inflow and outflow is 141.85 seconds or **11.8%** of a cycle. No significant changes over time (about two seconds over four days) and no big differences between reactors (range of 129 to 153 seconds).  
 
-```{r}
 proportion_at_max <- time_difference_average / (20*60)
 proportion_at_min <- 1 - proportion_at_max
+```
+
+
+However, this approach was only an approximation for the dilution rate in our system that has discrete pulses of inflow and outflow and transient changes in volume. Instead we can map our chemostat system to a continuous-time dilution model more faithfully.
+
+The key idea is that we need to calculate the exponential decay rate that would produce the same net dilution over a full inflow/outflow cycle. For the model: 
+
+$$\frac{dN}{dt} = -dN + growth$$
+we want to figure out what value of $d$ would produce the same dilution as the discrete inflow and outflow over a given time period. First we can work out a dilution factor that explains how a population is reduced following one inflow and outflow cycle: 
+
+$$N_1 = N_0 . \frac{V_0}{V_0 + V_{in}}$$
+where $V_0$ is the baseline volume and $V_{in}$ is the inflow volume. Next we just relate this dilution factor to the exponential decay model: 
+
+$$N_0 . \frac{V_0}{V_0 + V_{in}} = N_0 e^{-dt}$$
+where $d$ is the dilution rate and $t$ is the time of a cycle. After rearranging we can solve for $d$:
+
+$$d = \frac{\log(\frac{V_0 + V_{in}}{V_0})}{t}$$
+
+which we can calculate because we know $V_0$ (21 ml), $V_{in}$ (inflow volume, obtained from outflow volume) and $t$ (time of a cycle).
+
+
+```{r}
+
 
 outflow <- outflow %>%
   
-  # inflow volume is hourly outflow volume divided by number of inflow cycles (3)
-  mutate(inflow_volume = outflow_per_hour_mean/3) %>%
+  # calculate inflow volume 
+  mutate(Vin = outflow_per_hour_mean/3) %>%
   
-  # maximum volume of reactor is 21ml + inflow volume 
-  mutate(max_volume = inflow_volume + 21) %>%
+  # set baseline volume 
+  mutate(V0 = 21) %>%
   
-  # time average volume 
-  mutate(time_average_volume = (21*proportion_at_min) + (max_volume*proportion_at_max)) %>%
+  # set cycle time (in hours)
+  mutate(cycle_time = 1/3) %>%
   
-  # dilution rate (outflow volume per hour / time average volume)
-  mutate(dilution_rate = outflow_per_hour_mean/time_average_volume) %>%
-  
-  # option to just use minimum volume 
-  #mutate(dilution_rate = outflow_per_hour_mean/21) %>%
+  # dilution rate, based on equation above
+  mutate(dilution_rate = log((V0 + Vin)/V0) / cycle_time) %>%
+         
+  # old dilution rate for comparison
+  mutate(dilution_rate_old = outflow_per_hour_mean/21) %>%
 
   # rename some variables to match cfu and od
   rename(experiment_replicate = experiment_rep) %>%
   rename(ID = bioreactor)
-           
-rm(proportion_at_max, proportion_at_min, 
-   time_difference_average, time_difference_reactors, time_difference)        
+
+
 ```
 
 
@@ -441,13 +465,13 @@ From looking at the OD time series, and from considering the impacts of evolutio
 
 Choosing cutoffs that separate low, intermediate, and high dilutions requires some thought. 
 
-The low to intermediate cutoff is pretty easy - all samples with dilution rate of 0.061 and below include samples from the lowest inflow settings where overshooting happens. The next inflow setting gives dilution rates all above 0.1 and there are no more overshooting dynamics. So choosing 0.1 is fine for that cut-off.  
+The low to intermediate cutoff is pretty easy - all samples with dilution rate below 0.1 include samples from the lowest inflow settings where overshooting happens. The next inflow setting gives dilution rates above 0.1 and there are no more overshooting dynamics. So choosing 0.1 is fine for that cut-off.  
 
-The intermediate to high cut-off is a bit more difficult to choose. Looking at the OD per day plots for each replicate (especially dd4 and dd7), there is gradual increases in *all* dilutions above 0.75 and the inflow settings corresponding to these dilution rates lead to slow population growths that take several days to reach equilibrium. Below 0.75 and down to 0.25 there are some populations that increased each day and some that decreased each day, and some that stayed the same. These variable results could be related to noise or evolution. 
+The intermediate to high cut-off is a bit more difficult to choose. Looking at the OD per day plots for each replicate (especially dd4 and dd7), there is gradual increases in *all* dilutions above 0.65 and the inflow settings corresponding to these dilution rates lead to slow population growths that take several days to reach equilibrium. Below 0.65 and down to around 0.1 there are some populations that increased each day and some that decreased each day, and some that stayed the same. 
 
-Based on these observations (illustrated in `2-exploratory-plots.RMD`), I'll go with 0.1 and 0.7 as the two cutoffs. Our results are not sensitive to these choices. 
+Based on these observations (illustrated in `2-exploratory-plots.RMD`), I'll go with 0.1 and 0.65 as the two cutoffs. Our results are not sensitive to these choices as shifting cutoffs to something like 0.2 and 0.7 will only remove or add one or two data points to the final dataset. 
 
-Varying these cutoffs or ignoring the heuristics and just choosing the final day of the experiments doesn't qualtitatively change the result we find (of superlinear density dependence). Fred Smith did a similar experiment in 1963 with Daphnia and an expanding culture approach rather than a harvest rate approach - he had similar issues deciding when populations were at equilibrium. When talking about the samples he removed he said: "Perhaps more should be omitted in some cases, but more elegant screening methods would seem to enhance the possibility of bias." We've tried to strike a balance between mechanistic understanding and amount of screening to avoid this possibility of bias as well.
+Varying these cutoffs or ignoring the heuristics and just choosing the final day of the experiments doesn't qualitatively change the result we find. Fred Smith did an experiment in 1963 with Daphnia and an expanding culture approach rather than a harvest rate approach - he had similar issues deciding when populations were at equilibrium. When talking about the samples he removed he said: *"Perhaps more should be omitted in some cases, but more elegant screening methods would seem to enhance the possibility of bias."* We've tried to strike a balance between mechanistic understanding and amount of screening to avoid this possibility of bias as well.
 
 ## Different filtering procedures
 
@@ -471,10 +495,10 @@ chemo_dd_eqs <- chemo_dd %>%
   filter(!(dilution_rate < 0.1 & day %in% c(1, 2, 3))) %>%
   
   # highest dilutions need time to get to equilibrium: take at least day 3 
-  filter(!(dilution_rate > 0.7 & day %in% c(1, 2))) %>%
+  filter(!(dilution_rate > 0.65 & day %in% c(1, 2))) %>%
   
   # mid dilution rates get to equilibrium fast but could then evolve, take days 1 and 2 only
-  filter(!(dilution_rate < 0.7 & dilution_rate > 0.1 & day %in% c(3, 4, 5, 6))) %>%
+  filter(!(dilution_rate < 0.65 & dilution_rate > 0.1 & day %in% c(3, 4, 5, 6))) %>%
   
   # longer than 4 days is too much, equilibrium already reached but high risk of evolution
   filter(!(day > 4))
