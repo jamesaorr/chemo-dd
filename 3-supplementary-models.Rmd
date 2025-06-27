@@ -210,11 +210,9 @@ Despite this bias, $\theta$ is still clearly above one (mean of 1.76, error of 0
 
 What is causing this affect?
 
-If $r = g$, then 0 will be raised to the power of $1/\theta$ which will just give 0, so I can see why the model would struggle there. 
-
 If $r < g$, then a negative value will be raised to the power of $1/\theta$ which is problematic (issues with complex numbers). 
 
-In theory it shouldn't be possible for us to get r values that are smaller than g. However, our model is presumably not following theta-logistic perfectly and there is also error associated with `dilution_rate`. 
+In theory it shouldn't be possible for us to get r values that are smaller than g. However, our system is of course not following theta-logistic perfectly and there is also error associated with `dilution_rate`. 
 
 There are several potential options here to a resolve the bounding issues with the flipped theta-logistic model: 
 
