@@ -11,7 +11,7 @@ author: "James Orr"
 This notebook uses the processed data from `1-data-prep.Rmd` and the estimated Monod parameters for the E. coli strain used in our study (in the fits sub folder) to make the predictions for density dependence. 
 
 
-## Set up environment 
+## Set up 
 
 Load packages and clear environment 
 
@@ -36,7 +36,8 @@ j_green <- rgb(87/255, 167/255, 46/255)
 set.seed(22)
 ```
 
-## Theory
+
+## Prediction from consumer-resource model
 
 The model we'll use is a consumer-resource model for one resource (glucose) and one consumer (E. coli) where the resource uptake function is a Monod function and the resource supply function is a chemostat model. From previous work with this system, we know that this simple model does a very good job of describing the dynamics of E. coli and glucose. 
 
@@ -131,7 +132,6 @@ N_star_chemo <- function(d, m, u, S, k, q) {
 ```
 
 
-## Prediction
 
 We have empirical estimates for $\mu_{max}$, $k$, and $Q$ *(note that we have an estimate for yield, which is the inverse of the quota)*. We know the range of dilution rates we used and we are simulating $N$ and $R$. That just leaves $S$ - the supply resource concentration. We used 0.05% glucose as our base media - so $S$ is just 0.05. The units of resources with our parameterized model are R = 1 is 10 mg/ml of glucose. The empirically estimated parameters are in terms of OD for $N$, so the predictions should in theory align with our results (particularly at low dilution rates that match batch cultures - how the models were parameterised - more closely). 
 
@@ -410,7 +410,83 @@ write.csv(prediction_posteriors, "data/theory/prediction_posteriors.csv", row.na
 ```
 
 
+
 ### Figure 1B
+
+
+```{r, fig.height=8, fig.width=8}
+
+# estimate parameters
+mu_max <- mu_mean
+k <- k_mean
+
+# Generate Monod data
+R <- seq(0, 0.02, length.out = 1000) 
+mu <- mu_max * R / (k + R)
+monod_data <- data.frame(R = R, mu = mu)
+
+# Create Monod curve for each posterior sample
+posterior_curves <- posterior_subset %>%
+  mutate(draw = row_number()) %>%
+  crossing(R = R) %>%
+  mutate(mu = mu_max * R / (Ks + R))
+
+# Plot Monod function
+ggplot() +
+  
+  geom_line(data = posterior_curves, aes(x = R, y = mu, group = draw), 
+            alpha = 0.25, size = 0.5, color = "gray50") +
+  
+  geom_line(data = monod_data, aes(x = R, y = mu), 
+            size = 1, alpha = 1, color = "black") +  
+  
+  labs(x = "Resource Concentration", y = "Growth Rate") +
+  
+  scale_x_continuous(breaks = seq(0, 0.02, by = 0.01),
+                     limits = c(0, 0.02)) +
+  
+  theme_minimal(base_size = 20) +
+  
+  theme(panel.grid = element_blank(),
+            panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5))
+
+
+
+```
+
+
+```{r, fig.height=4, fig.width=4}
+
+ggplot() +
+
+  geom_line(
+    data = prediction_posteriors,
+    aes(x = N_star, y = dilution_rate, group = draw),
+    color = j_blue, size = 0.25, linetype = "solid", alpha = 0.15) +
+
+  geom_line(
+    data = prediction,
+    aes(x = N_star, y = dilution_rate),
+    color = j_blue, size = 1, linetype = "solid", alpha = 1) +
+
+  labs(y = "Growth", x = "Density") +
+  
+  xlim(0, 0.205) +
+
+  theme_light(base_size = 20)  +
+  theme(panel.grid = element_blank(),
+        panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5))
+
+
+
+```
+
+
+
+## Empirical results
+
+
+### Fitting inverse theta-logistic
 
 Compare theoretical predictions to empirical results. First we need to fit a model to the empirical data to quantify the degree of superlinearity. We'll use the inverse of the theta logistic model: 
 
@@ -749,9 +825,8 @@ rm(samples, r_samples, K_samples, median_r, lower_r, upper_r, hdi_r,
 ```
 
 
+### Figure 1C
 
-
-Figure 1B
 
 ```{r, fig.height=8, fig.width=8}
 # extract median parameter estimates from inverse theta model
@@ -777,24 +852,25 @@ ggplot(data = exp_data, aes(y = Neq_dat, x = g)) +
             aes(x = g, y = N), 
             col = j_green, size = 2, linetype = "dashed") +
   
-  geom_line(
-    data = prediction_posteriors,
-    aes(y = N_star, x = dilution_rate, group = draw),
-    color = j_green, size = 0.25, linetype = "solid", alpha = 0.1) +
+  #geom_line(
+  #  data = prediction_posteriors,
+  #  aes(y = N_star, x = dilution_rate, group = draw),
+  #  color = j_green, size = 0.25, linetype = "solid", alpha = 0.1) +
   
-  geom_line(
-    data = prediction,
-    aes(y = N_star, x = dilution_rate),
-    color = j_green, size = 1, linetype = "solid", alpha = 1) +
+  #geom_line(
+  #  data = prediction,
+  #  aes(y = N_star, x = dilution_rate),
+  #  color = j_green, size = 1, linetype = "solid", alpha = 1) +
   
   geom_point(colour = j_green, size = 5, alpha = 0.8) +
+  
+  scale_x_continuous(breaks = seq(0, 0.9, by = 0.3),
+                     limits = c(0, 0.94)) +
   
   theme_minimal(base_size = 20) +
   
   theme(panel.grid = element_blank(),
-            panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5)) +
-  
-  xlim(0, 1)
+            panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5))
   
 
 ```
@@ -1208,7 +1284,7 @@ rm(output, output_df, p1, p2, params, initial_conditions, t,
 
 
 
-### Figure 1C
+### Figure 2
 
 The goal here is to create a 3 x 3 panel plot where the three resource dynamics (chemostat, logistic, pulsed) are crossed with three levels of mortality. 
 
