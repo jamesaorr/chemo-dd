@@ -440,10 +440,12 @@ ggplot() +
   geom_line(data = monod_data, aes(x = R, y = mu), 
             size = 1, alpha = 1, color = "black") +  
   
-  labs(x = "Resource Concentration", y = "Growth Rate") +
+  labs(x = "Glucose Concentration (mg/mL)", y = "Per Capita Growth (hour ^-1)") +
   
+  # R is % glucose in our model, 1% glucose is 10mg/mL
   scale_x_continuous(breaks = seq(0, 0.02, by = 0.01),
-                     limits = c(0, 0.02)) +
+                     limits = c(0, 0.02),
+                     labels = c("0.0", "0.1", "0.2")) +
   
   theme_minimal(base_size = 20) +
   
@@ -469,9 +471,14 @@ ggplot() +
     aes(x = N_star, y = dilution_rate),
     color = j_blue, size = 1, linetype = "solid", alpha = 1) +
 
-  labs(y = "Growth", x = "Density") +
+  labs(y = "Per Capita Growth", x = "Density") +
   
-  xlim(0, 0.205) +
+  scale_x_continuous(breaks = seq(0, 0.2, by = 0.1),
+                     limits = c(0, 0.2)) + 
+  
+  scale_y_continuous(breaks = seq(0, 0.7, by = 0.2),
+                     limits = c(0, 0.7)) + 
+  
 
   theme_light(base_size = 20)  +
   theme(panel.grid = element_blank(),
@@ -843,14 +850,14 @@ curve_data <- data.frame(g = g_seq, N = N_curve)
 # plot the experimental data with inverse theta and also model predictions
 ggplot(data = exp_data, aes(y = Neq_dat, x = g)) +
   labs(
-    y = "Optical Density", x = "Dilution rate (ml/hour/ml)") +
+    y = "Optical Density", x = "Dilution rate") +
 
   geom_ribbon(data = credible_df, aes(x = g, ymin = Neq_lower, ymax = Neq_upper), 
               inherit.aes = FALSE, fill = j_green, alpha = 0.4, color = NA) +
 
   geom_line(data = curve_data, 
             aes(x = g, y = N), 
-            col = j_green, size = 2, linetype = "dashed") +
+            col = j_green, size = 1, linetype = "dashed") +
   
   #geom_line(
   #  data = prediction_posteriors,
@@ -866,6 +873,9 @@ ggplot(data = exp_data, aes(y = Neq_dat, x = g)) +
   
   scale_x_continuous(breaks = seq(0, 0.9, by = 0.3),
                      limits = c(0, 0.94)) +
+  
+  #scale_y_continuous(breaks = seq(0, 0.2, by = 0.1),
+  #                   limits = c(0, 0.2)) +
   
   theme_minimal(base_size = 20) +
   
@@ -894,15 +904,21 @@ ggplot(exp_data, aes(x = od_blanked, y = dilution_rate)) +
     data = curve_data,
     aes(x = od_blanked, y = dilution_rate),
     color = j_blue, size = 1.5, linetype = "dashed") +
-  scale_x_continuous(limits = c(0, 0.2), breaks = scales::pretty_breaks(n = 3)) +
   geom_point(colour = j_blue, size = 5, alpha = 0.3) + 
+  
+  scale_x_continuous(breaks = seq(0, 0.2, by = 0.1),
+                     limits = c(0, 0.2)) + 
+  
+  scale_y_continuous(breaks = seq(0, 0.9, by = 0.3),
+                     limits = c(0, 0.9)) + 
+  
   theme_light(base_size = 20)  +
   theme(panel.grid = element_blank(),
             panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5))
 
 # clean up environment 
-rm(median_theta, median_K, median_r, dilution_curve, od_seq, exp_data, 
-   curve_data, grid, median_pred, samples, g_seq, N_curve, credible_df, credible_df2)
+#rm(median_theta, median_K, median_r, dilution_curve, od_seq, exp_data, 
+#   curve_data, grid, median_pred, samples, g_seq, N_curve, credible_df, credible_df2)
 
 ```
 
