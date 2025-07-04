@@ -90,13 +90,13 @@ We'll use Gamma distribution with the identity link to account for the fact that
 
 **Priors** 
 
-$\theta$ describes the curvature of the model, $r$ describes the intercept with the x axis (maximum growth rate), $K$ describes the intercept with the y axis (carrying capacity). Based on this prior knowledge, we can provide some biologically informed priors by just visually inspecting the data. 
+$\theta$ describes the curvature of the model, $r$ describes the intercept with the x axis (maximum growth rate), $K$ describes the intercept with the y axis (carrying capacity). Based on this prior knowledge, we can provide some biologically informed priors based on growth rates and OD values previously observed with this system 
 
-- We'll say that $r$ will fall somewhere between 0.7 and 1.1 
+- We'll say that $r$ will fall somewhere between 0.6 and 1.1 
 
 - We'll say that $K$ will fall somewhere between 0.15 and 0.25
 
-- We'll give loose priors for $\theta$, as this is the main parameter we're interest in and don't want to potentially bias the results. So we'll say it falls somewhere between -0.5 (highly sublinear) and 10 (highly superlinear).
+- We'll give loose priors for $\theta$, as this is the main parameter we're interest in and don't want to potentially bias the results. So we'll say it falls somewhere between -1 (highly sublinear) and 10 (highly superlinear).
 
 ```{r, include = F}
 
@@ -122,9 +122,9 @@ model <- brm(
   
   # priors 
   prior = c(
-    prior(uniform(0.7, 1.1), nlpar = "r", lb = 0.7, ub = 1.1),  
+    prior(uniform(0.7, 1.1), nlpar = "r", lb = 0.6, ub = 1.1),  
     prior(uniform(0.15, 0.25), nlpar = "K", lb = 0.15, ub = 0.25), 
-    prior(uniform(-0.5, 10), nlpar = "theta", lb = -0.5, ub = 10)  
+    prior(uniform(-0.5, 10), nlpar = "theta", lb = -1, ub = 10)  
   ),
   
   # hyperparameters 

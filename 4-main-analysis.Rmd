@@ -528,9 +528,9 @@ First, we set up a grid of parameter values to screen:
 
 ```{r}
 #| eval: false # true to actually run it
-grid <- crossing(K = seq(0.15, 0.225, length.out = 50),
-                 r = seq(0.7, 1.1, length.out = 50),
-                 theta = seq(0.5, 10, length.out = 50),
+grid <- crossing(K = seq(0.15, 0.25, length.out = 50),
+                 r = seq(0.6, 1.1, length.out = 50),
+                 theta = seq(-1, 10, length.out = 50),
                  sigma = seq(0.01, 0.05, length.out = 20))
 
 # Choosing range for sigma
@@ -547,9 +547,9 @@ Next, we add some priors that are fairly broad but still include realistic value
 grid <- grid |>
   mutate(
     log_prior_K = dunif(K, min = 0.15, max = 0.25, log = TRUE),
-    log_prior_r = dunif(r, min = 0.7, max = 1.1, log = TRUE),
-    log_prior_theta = dunif(theta, min = 0.5, max = 10, log = TRUE),
-    log_prior_sigma = dunif(sigma, min = 0.01, max = 0.1, log = TRUE),
+    log_prior_r = dunif(r, min = 0.6, max = 1.1, log = TRUE),
+    log_prior_theta = dunif(theta, min = -1, max = 10, log = TRUE),
+    log_prior_sigma = dunif(sigma, min = 0.01, max = 0.05, log = TRUE),
     log_prior = log_prior_K + log_prior_r + log_prior_theta + log_prior_sigma
   )
 ```
@@ -593,6 +593,7 @@ rm(max_log_post, log_sum_exp_post, max_log_prior, log_sum_exp_prior)
 
 #write.csv(grid, "data/grid/grid.csv", row.names = FALSE)
 ```
+
 The grid above (50 x 50 x 50 x 20) has 2.5 million combinations of parameters, so it takes quite a while to run (~10 mins on an M1 MacBook Pro), so we can just load the grid from a previous run instead:
 
 ```{r}
