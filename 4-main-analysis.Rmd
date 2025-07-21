@@ -135,7 +135,7 @@ N_star_chemo <- function(d, m, u, S, k, q) {
 
 We have empirical estimates for $\mu_{max}$, $k$, and $Q$ *(note that we have an estimate for yield, which is the inverse of the quota)*. We know the range of dilution rates we used and we are simulating $N$ and $R$. That just leaves $S$ - the supply resource concentration. We used 0.05% glucose as our base media - so $S$ is just 0.05. The units of resources with our parameterized model are R = 1 is 10 mg/ml of glucose. The empirically estimated parameters are in terms of OD for $N$, so the predictions should in theory align with our results (particularly at low dilution rates that match batch cultures - how the models were parameterised - more closely). 
 
-Extract the mean estimates and 100 random posterior draws to propagate uncertainty. 
+Extract the median estimates and 100 random posterior draws to propagate uncertainty. 
 
 ```{r}
 # read in the model fit
@@ -161,12 +161,10 @@ monod_draws <-
 # print out the summery values of the key variables
 sumparams <- subset_draws(monod_draws, c('log_mu_max', 'log_Ks', 'log_q')) %>% 
   summary()
-#round(exp(sumparams$mean), 6)
 
-mu_mean <- exp(sumparams$mean)[1]
-k_mean <- exp(sumparams$mean)[2]
-q_mean <- 1/exp(sumparams$mean)[3] # q in this model is actually yield, so we need to convert it to quota (inverse)
-
+mu_med <- exp(sumparams$median)[1]
+k_med <- exp(sumparams$median)[2]
+q_med <- 1/exp(sumparams$median)[3] # q in this model is actually yield, so we need to convert it to quota (inverse)
 
 posterior_samples <- monod_draws %>%
   
@@ -200,8 +198,8 @@ Check that the Monod function looks right and run model for a single dilution ra
 ###################################
 
 # estimate parameters
-mu_max <- mu_mean
-k <- k_mean
+mu_max <- mu_med
+k <- k_med
 
 # Generate Monod data
 R <- seq(0, 0.05, length.out = 100) 
@@ -235,10 +233,10 @@ t <- seq(0, 10000, 1)
 initial_conditions <- c(N = 0.01, R = 0.01)
 d <- 0.5          # have to define this first, as m is set to d
 params <- list(
-  mu_max = mu_mean,  
-  k = k_mean,          
+  mu_max = mu_med,  
+  k = k_med,          
   S = 0.05,            
-  Q = q_mean,        
+  Q = q_med,        
   d = d,
   m = d
   )
@@ -277,10 +275,10 @@ initial_conditions <- c(N = 0.01, R = 0.01)
 
 # Fixed parameters
 params_fixed <- list(
-  mu_max = mu_mean,      
-  k = k_mean,         
+  mu_max = mu_med,      
+  k = k_med,         
   S = 0.05,                 
-  Q = q_mean
+  Q = q_med
   )
 
 # Create a sequence of dilution rates
@@ -317,9 +315,9 @@ for (dil in dil_values) {
 ```{r, fig.width=4, fig.height=4, include = FALSE, echo = FALSE}
 #### Analytical prediction
 # Define parameters
-u <- mu_mean
-k <- k_mean
-q <- q_mean
+u <- mu_med
+k <- k_med
+q <- q_med
 S <- 0.05
 # Generate prediction
 d <- seq(0, u, by = 0.0001)
@@ -353,9 +351,9 @@ Now that we know analytical prediction matches simulations, we can make analytic
 
 ```{r, fig.width=4, fig.height=4}
 # Define parameters
-u <- mu_mean
-k <- k_mean
-q <- q_mean
+u <- mu_med
+k <- k_med
+q <- q_med
 S <- 0.05
 
 # Generate prediction
@@ -367,7 +365,7 @@ prediction <- data.frame(dilution_rate = d, N_star = N_star)
 # remove negative densities and dilution rates above maximum growth rate 
 prediction <- prediction %>%
   filter(N_star > 0) %>%
-  filter(dilution_rate < mu_mean)
+  filter(dilution_rate < mu_med)
 
 # add posteriors for uncertainty 
 # expand grid of all draws by all dilution values
@@ -417,8 +415,8 @@ write.csv(prediction_posteriors, "data/theory/prediction_posteriors.csv", row.na
 ```{r, fig.height=8, fig.width=8}
 
 # estimate parameters
-mu_max <- mu_mean
-k <- k_mean
+mu_max <- mu_med
+k <- k_med
 
 # Generate Monod data
 R <- seq(0, 0.02, length.out = 1000) 
@@ -944,9 +942,9 @@ $$N^* = \frac{d}{\mu Q} \left [\frac{\mu S}{m}  - \frac{mk}{\mu - m} - k \right 
 
 ```{r, fig.width=4, fig.height=4}
 # parameters 
-u <- mu_mean
-k <- k_mean
-q <- q_mean
+u <- mu_med
+k <- k_med
+q <- q_med
 S <- 0.05
 
 # generate predictions for different m and d
@@ -996,8 +994,8 @@ Plot these 9 scenarios separately to avoid any visual biases.
 # Function to generate the plot
 plot_subset <- function(dilution, mort) {
   
-  # prediction with mean parameters
-  mean <- df_chemo %>% 
+  # prediction with medians of parameters
+  med_pred <- df_chemo %>% 
     filter(dil == dilution) %>%
     filter(N > 0) %>%
     filter(m > mort)
@@ -1010,7 +1008,7 @@ plot_subset <- function(dilution, mort) {
   
   # plot together
   p <- ggplot() +
-    geom_line(data = mean, aes(y = m, x = N), size = 1) +
+    geom_line(data = med_pred, aes(y = m, x = N), size = 1) +
     geom_line(data = posteriors, 
               aes(y = m, x = N, group = interaction(dil, draw)), 
               alpha = 0.1, size = 0.5) +
@@ -1067,9 +1065,9 @@ N_star_log <- function(r, K, m, u, k, q) {
 
 ```{r, fig.width=4, fig.height=4}
 # parameters 
-u <- mu_mean
-k <- k_mean
-q <- q_mean
+u <- mu_med
+k <- k_med
+q <- q_med
 
 # generate data
 m_vals <- seq(0, u, length.out = 1000) 
@@ -1113,9 +1111,9 @@ t <- seq(0, 100, 1)
 initial_conditions <- c(N = 0.01, R = 0.01)
 
 params <- list(
-  mu_max = mu_mean,  
-  k = k_mean,          
-  Q = q_mean,        
+  mu_max = mu_med,  
+  k = k_med,          
+  Q = q_med,        
   m = 0,
   r = 100,
   K = 0.0004
@@ -1161,13 +1159,13 @@ initial_conditions <- c(N = 0.01, R = 0.05)
 
 # Fixed parameters 
 params <- list(
-  mu_max = mu_mean,     
-  k = k_mean,           
-  Q = q_mean,        
+  mu_max = mu_med,     
+  k = k_med,           
+  Q = q_med,        
   m = 0 
 )
 
-# Prediction with mean estimates
+# Prediction with median estimates
 # (cr_tII_pulse has no resource supply, initial resources only)
   output <- ode(
     y = initial_conditions,
@@ -1253,9 +1251,9 @@ pulse_times <- seq(0, total_time, by = pulse_intervals)
 
 # Set parameters
 params <- list(
-  mu_max = mu_mean,
-  k = k_mean,
-  Q = q_mean,
+  mu_max = mu_med,
+  k = k_med,
+  Q = q_med,
   pulse_size = pulse_size,
   m = m  
 )
@@ -1313,9 +1311,9 @@ Collect the data first (chemostat and logistic have analytical solutions, pulsed
 
 ```{r}
 # parameters 
-u <- mu_mean
-k <- k_mean
-q <- q_mean
+u <- mu_med
+k <- k_med
+q <- q_med
 
 #### data for chemostat resources ####
 m_vals <- seq(0, u, length.out = 10000) 
@@ -1359,9 +1357,9 @@ df_log_posts <- posterior_subset %>%
 t <- seq(0, 5, length.out = 10000)  
 initial_conditions <- c(N = 0.01, R = 0.05)
 params <- list(
-  mu_max = mu_mean,     
-  k = k_mean,           
-  Q = q_mean,        
+  mu_max = mu_med,     
+  k = k_med,           
+  Q = q_med,        
   m = 0
 )
 output <- ode(
@@ -1405,7 +1403,7 @@ Create the nine plots
 # Function to generate the plot
 plot_subset <- function(data, data2, mort_value) {
   
-  mean <- data %>% 
+  med_pred <- data %>% 
     filter(pcgr > mort_value) %>%
     # Monod growth rate minus mortality = realised growth rate 
     mutate(pcgr_realised = pcgr - mort_value)
@@ -1418,7 +1416,7 @@ plot_subset <- function(data, data2, mort_value) {
   p <- ggplot() +
     geom_line(data = posteriors, aes(y = pcgr_realised, x = N, group = draw), 
               alpha = 0.05, size = 0.5, colour = j_blue) +
-    geom_line(data = mean, aes(y = pcgr_realised, x = N), colour = j_blue) +
+    geom_line(data = med_pred, aes(y = pcgr_realised, x = N), colour = j_blue) +
     labs(y = "", x = "") +
     theme_minimal() +
     scale_x_continuous(breaks = scales::pretty_breaks(n = 4)) +
@@ -1561,9 +1559,6 @@ plot_grid(p1, p2, p3, ncol = 3, nrow = 1)
 rescale_plot <- function(mean_data, posts_data) {
   
   mort <- c(0.25, 0.5, 0.75)
-  
-  ## mean 
-
   
   ## posteriors 
   p_plot_1 <- posts_data %>%
