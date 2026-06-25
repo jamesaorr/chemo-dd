@@ -8,15 +8,15 @@ output:
 author: "James Orr"
 ---
 
-This notebook uses the processed data from `1-data-prep.Rmd` to create supplementary plots for our study on the shape of density dependence of *E. coli*. Here we plot: 
+This notebook uses the processed data from `1-data-prep.Rmd` to create supplementary plots for our study on the shape of density dependence of *E. coli*. These plots are primarly for cross-referencing to ensure that our methods are appropriate and are robust to different data filtering options. Some plots will be in the supporting information accompanying the main article. 
 
-- densities (OD and CFU) for each experiment against dilution rate (colored by day)
+This notebook produces:
 
-- equilibrium density against dilution rate for all data to illustrate chosen cut-off points (low, intermediate, and high dilution rates), which determines what days a population was considered at equilibrium and unaffected by evolution. 
+- Plots of densities (OD and CFU) for all samples in each replicate as a function of dilution rate. (Supplementary Figure 1A).
 
-- equilibrium density against dilution rate for each data filtering option (for OD and CFU). 
+- Plots of only equilibrium densities (OD and CFU) as a function of dilution rate for each data filtering option.
 
-- the chibio's OD timeseries for dd7. 
+- Plots of the OD time series produced by the Chi.Bio reactors. These OD measurements are less precise than the daily OD readings that were done on plate readers. (Supplemenary Figure 1B)
 
 
 ### Set up environment 
@@ -49,7 +49,7 @@ chemo_dd_eqs_day3 <- read.csv("data/processed/equilibrium_samples_day3.csv")
 chemo_dd_eqs_day4 <- read.csv("data/processed/equilibrium_samples_day4.csv")
 ```
 
-### Densities per day for each experiment
+### Densities per day for each replicate
 
 ```{r}
 ggplot(all_samples, aes(y = cfu_ul, x = dilution_rate, color = day)) +
@@ -57,7 +57,7 @@ ggplot(all_samples, aes(y = cfu_ul, x = dilution_rate, color = day)) +
   labs(y = "CFU/μL", x = "Dilution rate (ml/hour/ml)", color = "day") +
   scale_color_gradient(low = "#3BDCB4", high = "#185266", name = "Day") + 
   theme_light() +
-  facet_wrap(~ experiment_replicate, scales = "free_y")
+  facet_wrap(~ experiment_replicate, scales = "fixed")
 ```
 ```{r}
 ggplot(all_samples, aes(y = od_blanked, x = dilution_rate, color = day)) +
@@ -65,12 +65,12 @@ ggplot(all_samples, aes(y = od_blanked, x = dilution_rate, color = day)) +
   labs(y = "OD", x = "Dilution rate (ml/hour/ml)", color = "day") +
   scale_color_gradient(low = "#3BDCB4", high = "#185266", name = "Day") + 
   theme_light() +
-  facet_wrap(~ experiment_replicate, scales = "free_y")
+  facet_wrap(~ experiment_replicate, scales = "fixed")
 ```
 
-Cutoff between low, intermediate, and high dilution rates. Only with up to and including day 4
+Cutoff between low, intermediate, and high dilution rates.
 
-```{r, fig.height=4, fig.width=8}
+```{r, fig.height=6, fig.width=8}
 
 ggplot(subset(all_samples, all_samples$day < 5), 
        aes(y = od_blanked, x = dilution_rate, 
@@ -99,10 +99,60 @@ ggplot(subset(all_samples, all_samples$day < 5),
     
   theme_light()
 
-
 ```
 
 Key observations from this plot are that: (i) in the "low" dilution rate zone (light grey) OD **decreases** each day and takes about 4 days to reach equilibrium due to the overshoot dynamic, (ii) in the "intermediate" dilution rate zone (medium grey) OD can go **up or down** (depending on stochasticity) so is considered at equilibrium on days 1 and 2 before evolution can have an effect, and (iii) in the "high dilution rate" zone (dark grey) OD **increases** each day until day 4 so is considered at equilibrium on day 4 only. 
+
+
+Supplementary Figure 1A
+
+```{r fig.height=8, fig.width=8}
+
+ggplot(subset(all_samples, all_samples$day < 5), 
+       aes(y = od_blanked, x = dilution_rate, 
+           fill = as.factor(day), shape = experiment_replicate)) +
+  
+  geom_line(aes(group = dilution_rate), linetype = "solid", 
+            color = "black", size = 1.5, alpha = 0.3) + 
+  
+  geom_point(size = 4, alpha = 0.7, colour = "gray50") + 
+  
+  # discrete colour scale
+  scale_fill_manual(
+    values = c(
+      "1" = "#e5f5e0",
+      "2" = "#a1d99b",
+      "3" = "#41ab5d",
+      "4" = "#005a25"),
+      name = "Day") +
+  
+  scale_shape_manual(values = c(21:25), name = "Replicate") +
+
+  # add in points from chemo_dd_eqs_av from main analysis
+  #geom_point(data = equilibrium_samples, aes(y = od_blanked, 
+  #                                       x = dilution_rate,
+  #                                       #fill = day,
+  #                                       shape = experiment_replicate),
+  #           color = "red", size = 4, inherit.aes = FALSE, show.legend = FALSE) +
+             
+  labs(y = "OD", x = "Dilution rate (ml/hour/ml)") + 
+    
+  theme_minimal(base_size = 20) +
+  
+  # move legend into top right and make smaller and put the two side by side
+  theme(legend.position = c(0.83, 0.87), legend.title = element_text(size = 12), 
+        legend.text = element_text(size = 12),
+        legend.box = "horizontal") +
+  
+  # tell legend to use the same shape and size for all points in legend
+  guides(fill = guide_legend(override.aes = list(shape = 21, size = 5, colour = "gray30"))) +
+  
+  
+  theme(panel.grid = element_blank(),
+            panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5))
+
+
+```
 
 
 ### Equilibrium densities by dilution rate
@@ -186,8 +236,7 @@ rm(titles, data_list, plots, make_plot)
 
 ```
 
-
-### Chibio OD timeseries
+### Chi.Bio OD timeseries
 
 
 ```{r, fig.height=6, fig.width=10}
@@ -226,5 +275,58 @@ ggplot(chibio_plot, aes(x = hours, y = od_measured,
   theme_minimal() +
   theme(legend.position = "right")
 ```
+
+Supplementary Figure 1B
+
+Select one high (above detection limit), one medium, and one low dilution rate that we have a full uninterrupted time series for. DD7 was the only experimental replicate where time series were uninterrupted for the full days. In that replicate, M0 has the highest dilution that is above detection limit. M4 has the lowest dilution (methodological control). M6 was disrupted half way through (e.g., lifted up to look at). That leaves M1 and M7 to choose from to represent the medium dilution rates. They are very similar, but M7's dilution rate closer to the middle of the full range of dilutions.  
+
+
+```{r, fig.height=8, fig.width=8}
+# filter one high, one medium, and one low dilution rates
+chibio_plot2 <- chibio_plot %>%
+  filter(ID %in% c("M0","M7", "M4")) %>%
+  # remove negatives 
+  filter(od_measured > 0.001)
+
+
+ggplot(chibio_plot2, aes(x = hours, y = od_measured, 
+                   group = ID, color = dilution_rate)) +
+  
+  # Each observation 
+  geom_point(alpha = 0.5, size = 0.25) +
+  
+  # Smoothed lines for each ID
+  #geom_smooth(aes(group = ID), method = "loess", 
+  #            se = FALSE, size = 1, alpha = 0.25, span = 0.1) +
+  
+  # Set a continuous color gradient 
+  #scale_color_gradient(low = "#3BDCB4", high = "#185266") +
+  
+  # Add labels and title
+  labs(x = "Hours", y = "OD", color = "Dilution Rate") +
+  
+  theme_minimal(base_size = 20) +
+  
+
+  scale_y_log10(
+    breaks = c(0.001, 0.01, 0.1, 1),
+    labels = c("0.001", "0.01", "0.1", "1"),
+    limits = c(0.001, 3)
+  ) +
+  
+  # move legend into top right and make smaller and put the two side by side
+  theme(legend.position = c(0.9, 0.15), legend.title = element_text(size = 12), 
+        legend.text = element_text(size = 12),
+        legend.box = "horizontal") +
+  
+  theme(panel.grid = element_blank(),
+            panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.5))
+
+```
+```{r}
+unique(chibio_plot2$dilution_rate)
+```
+
+
 
 

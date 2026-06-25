@@ -8,7 +8,7 @@ output:
 author: "James Orr"
 ---
 
-This notebook uses the processed data from `1-data-prep.Rmd` and the estimated Monod parameters for the E. coli strain used in our study (in the fits sub folder) to make the predictions for density dependence. 
+This notebook uses the processed data from `1-data-prep.Rmd` and the estimated Monod parameters for the *E. coli* strain used in our study (in the fits sub folder) to estimate the shape of density dependence of *E. coli* growing on glucose.
 
 
 ## Set up 
@@ -31,13 +31,12 @@ rm(list = ls())
 j_blue <- rgb(0, 112/255, 192/255)
 j_green <- rgb(87/255, 167/255, 46/255)
 
-
 #### Set seed for reproducibility
 set.seed(22)
 ```
 
 
-## Prediction from consumer-resource model
+## Analytical growth-density inversion on parameterized consumer-resource model
 
 The model we'll use is a consumer-resource model for one resource (glucose) and one consumer (E. coli) where the resource uptake function is a Monod function and the resource supply function is a chemostat model. From previous work with this system, we know that this simple model does a very good job of describing the dynamics of E. coli and glucose. 
 
@@ -50,11 +49,11 @@ $N$ = density of consumers
 
 $R$ = density of resources
 
-$\mu_{max}$ = maximum growth rate 
+$\mu_{max}$ = maximum growth rate of consumer
 
-$k$ = half saturation constant
+$k$ = half saturation constant of consumer
 
-$m$ = mortality rate 
+$m$ = mortality rate of consumer
 
 $d$ = dilution rate
 
@@ -104,15 +103,7 @@ pulse_fun <- function(t, state, parms) {
 ```
 
 
-
-
-#### Quantifying density dependence
-
-We used Abrams’ approach – manipulating mortality rate and observing the resulting population densities at equilibrium – to study the density dependence of Escherichia coli (MG1655) growing in chemostats. However, in our system, dilution rate of the chemostat is equal to the mortality rate of the bacteria, as we assume that there is no additional consumer mortality. We therefore experimentally manipulated the dilution rate of the chemostats to control the mortality of the consumer. This deviation from Abrams’ precise approach – dilution rate is not a “neutral” parameter in the sense that it alters resource dynamics as well as consumer mortality – was necessary in our system, but it allowed us to isolate the qualitative effect of the consumers’ functional responses on their own density dependence. 
-
-We can interpret the empirical observations as a form of density dependence (independent of resource dynamics) and we can make predictions for density dependence under resource dynamics that were not experimentally tested. 
-
-We can just simulate the consumer resource model under different dilution rates (where m = d) and plot equilibrium abundances against dilution rates. We can also analytically predict the shape of density dependence that we expect to see when d = m. We set the right hand side of the equations to zero and solve for $N$ and $R$. From the consumer equation:
+We can start by simulating the consumer resource model under different dilution rates (where m = d) and plot equilibrium abundances against dilution rates. We can also analytically predict the shape of density dependence that we expect to see when d = m. We set the left hand side of the equations to zero and solve for $N$ and $R$. From the consumer equation:
 
 $$R^* = \frac{mK_s}{\mu - m}$$
 From the resource equation:
@@ -131,9 +122,7 @@ N_star_chemo <- function(d, m, u, S, k, q) {
 }
 ```
 
-
-
-We have empirical estimates for $\mu_{max}$, $k$, and $Q$ *(note that we have an estimate for yield, which is the inverse of the quota)*. We know the range of dilution rates we used and we are simulating $N$ and $R$. That just leaves $S$ - the supply resource concentration. We used 0.05% glucose as our base media - so $S$ is just 0.05. The units of resources with our parameterized model are R = 1 is 10 mg/ml of glucose. The empirically estimated parameters are in terms of OD for $N$, so the predictions should in theory align with our results (particularly at low dilution rates that match batch cultures - how the models were parameterised - more closely). 
+We have empirical estimates for $\mu_{max}$, $k$, and $Q$ *(note that we have an estimate for yield, which is the inverse of the quota)*. We know the range of dilution rates we used and we are simulating $N$ and $R$. That just leaves $S$ - the supply resource concentration. We used 0.05% glucose as our base media - so $S$ is just 0.05. The units of resources with our parameterized model are R = 1 is 10 mg/ml of glucose. 
 
 Extract the median estimates and 100 random posterior draws to propagate uncertainty. 
 
@@ -190,163 +179,8 @@ posterior_subset <- posterior_samples %>%
 rm(monod_fit, posterior_samples, sumparams, monod_draws)
 ```
 
-Check that the Monod function looks right and run model for a single dilution rates
 
-```{r, fig.height=3, fig.width=6}
-###################################
-#### Plot estimated Monod curve ###
-###################################
-
-# estimate parameters
-mu_max <- mu_med
-k <- k_med
-
-# Generate Monod data
-R <- seq(0, 0.05, length.out = 100) 
-mu <- mu_max * R / (k + R)
-monod_data <- data.frame(R = R, mu = mu)
-
-# Create Monod curve for each posterior sample
-posterior_curves <- posterior_subset %>%
-  mutate(draw = row_number()) %>%
-  crossing(R = R) %>%
-  mutate(mu = mu_max * R / (Ks + R))
-
-# Plot Monod function
-p1 <- ggplot() +
-  geom_line(data = posterior_curves, aes(x = R, y = mu, group = draw), 
-            alpha = 0.025, size = 1, color = "blue") +
-  geom_line(data = monod_data, aes(x = R, y = mu), 
-            size = 0.5, alpha = 1) +  
-  labs(x = "R", y = "Growth Rate") +
-  ylim(0, 1) +
-  theme_minimal() 
-
-
-
-###################################
-#### Simulate for one dilution ####
-###################################
-
-### set initial conditions and paramaters
-t <- seq(0, 10000, 1)
-initial_conditions <- c(N = 0.01, R = 0.01)
-d <- 0.5          # have to define this first, as m is set to d
-params <- list(
-  mu_max = mu_med,  
-  k = k_med,          
-  S = 0.05,            
-  Q = q_med,        
-  d = d,
-  m = d
-  )
-
-# Run model 
-output <- ode(
-    y = initial_conditions,
-    times = t,
-    func = cr_tII_chemo,
-    parms = params
-  )
-
-# Convert output to a data frame
-output_df <- as.data.frame(output)
-
-# Plot dynamics
-p2 <- ggplot(output_df, aes(x = time)) +
-  geom_line(aes(y = N, color = "N")) +
-  geom_line(aes(y = R, color = "R")) +
-  labs(color = "") +
-  xlim(0, 50) +
-  theme_minimal() 
-
-plot_grid(p1, p2)
-
-rm(p1, p2, params, posterior_curves, d, 
-   initial_conditions, k, mu, mu_max, R, t, output, output_df, monod_data)
-```
-
-Simulating many different consumer-resource models across a range of dilutions gives the same result as the analytical prediction (next two chunks). So we can just use the analytical prediction moving forward. 
-
-```{r, include = FALSE, echo = FALSE}
-### set initial conditions and parameters
-t <- seq(0, 10000, 100)        # needs to be long enough to get to equilibrium, resolution doens't matter
-initial_conditions <- c(N = 0.01, R = 0.01)
-
-# Fixed parameters
-params_fixed <- list(
-  mu_max = mu_med,      
-  k = k_med,         
-  S = 0.05,                 
-  Q = q_med
-  )
-
-# Create a sequence of dilution rates
-dil_values <- seq(0.001, exp(-0.383), 0.001)
-
-# Initialize an empty data frame to store results
-results <- data.frame(dil = numeric(), final_N = numeric())
-
-# Loop over dilution rates
-for (dil in dil_values) {
-  # Update parameters with the current dilution rate
-  params <- c(params_fixed, d = dil, m = dil) # m is set to d for our experiment
-  
-  # Solve the model
-  output <- ode(
-    y = initial_conditions,
-    times = t,
-    func = cr_tII_chemo,
-    parms = params
-  )
-  
-  # Convert output to a data frame
-  output_df <- as.data.frame(output)
-  
-  # Get the final value of N
-  final_N <- tail(output_df$N, 1)
-  
-  # Save the dilution rate and final_N to results
-  results <- rbind(results, data.frame(dil = dil, final_N = final_N))
-}
-
-```
-
-```{r, fig.width=4, fig.height=4, include = FALSE, echo = FALSE}
-#### Analytical prediction
-# Define parameters
-u <- mu_med
-k <- k_med
-q <- q_med
-S <- 0.05
-# Generate prediction
-d <- seq(0, u, by = 0.0001)
-m <- d
-N_star <- N_star_chemo(d, m, u, S, k, q)
-prediction <- data.frame(dilution_rate = d, N_star = N_star)
-
-# Plot results
-ggplot() +
-  geom_line(data = results, aes(x = dil, y = final_N, colour = "simulation"),
-            linewidth = 2) +
-  geom_line(data = prediction, aes(x = dilution_rate, y = N_star, colour = "prediction")) +
-  scale_colour_manual(values = c("simulation" = "#3BDCB4", "prediction" = "#185266")) +
-  labs(
-    x = "Dilution Rate",
-    y = "Equilibrium Density",
-    colour = ""
-  ) +
-  xlim(0, u) +
-  ylim(0, 0.25) +
-  theme_minimal()
-
-rm(output, output_df, params, params_fixed, prediction, 
-   d, dil, dil_values, final_N, initial_conditions, k, m, N_star, q, S, t, u,
-   results)
-```
-
-
-Now that we know analytical prediction matches simulations, we can make analytical prediction that incorporates uncertainty from Monod parameter estimates. Here we are predicting what density dependence should have been observed by our experiment (where consumer mortality and dilution rate are equal)
+Now we can plug in the parameter estimates to the analytical growth-density inversion solution for our consumer-resoruce model (equation above).
 
 
 ```{r, fig.width=4, fig.height=4}
@@ -403,10 +237,9 @@ rm(d, k, m, N_star, q, S, u)
 Save theoretical prediction.   
 
 ```{r}
-write.csv(prediction, "data/theory/prediction.csv", row.names = F)
-write.csv(prediction_posteriors, "data/theory/prediction_posteriors.csv", row.names = F)
+#write.csv(prediction, "data/theory/prediction.csv", row.names = F)
+#write.csv(prediction_posteriors, "data/theory/prediction_posteriors.csv", row.names = F)
 ```
-
 
 
 ### Figure 1B
@@ -488,18 +321,19 @@ ggplot() +
 
 
 
-## Empirical results
+## Empirical growth-density inversion - chemostat experiment
 
+Above we analytically applied growth-density inversion to a parameterized consumer-resource model of our system. Now we can just analyze the data generated in our chemostat experiment where we manipulated dilution rates and quantified equilibrium densities to see if we see a similar shape of density dependence. We will estimate the shape of density-dependence in a phenomenological way using the classic theta-logistic model that is familiar to those who study density dependence. 
 
 ### Fitting inverse theta-logistic
 
-Compare theoretical predictions to empirical results. First we need to fit a model to the empirical data to quantify the degree of superlinearity. We'll use the inverse of the theta logistic model: 
+As we experimentally controlled growth rate rather than density, we'll fit the inverse of the theta logistic model: 
 
 $$
 N=K\left(1-\frac{g}{r}\right)^{\frac{1}{\theta}}
 $$
 
-See `3-supplementary-models.Rmd` for details on alternative models and fitting approaches. Many other modelling approaches (e.g., inverse theta logistic in `brms`, power model, polynomials) find superlinearity as well. Here, we'll use a grid based approach that is very transparent and that can overcome MCMC issues with the boundary issue, where the parameter r can't be lower than the observed g values. 
+See `3-supplementary-models.Rmd` for details on alternative models and fitting approaches. These other modelling approaches (e.g., inverse theta logistic in `brms`, power model) find superlinearity as well. Here, we'll use a grid based approach that is very transparent and that can overcome the boundary issues we had with the MCMC algorithms in `brms`, where the parameter r can't be lower than the observed g values. 
 
 
 Load data 
@@ -526,9 +360,9 @@ First, we set up a grid of parameter values to screen:
 
 ```{r}
 #| eval: false # true to actually run it
-grid <- crossing(K = seq(0.15, 0.25, length.out = 50),
-                 r = seq(0.6, 1.1, length.out = 50),
-                 theta = seq(-1, 10, length.out = 50),
+grid <- crossing(K = seq(0.1, 0.5, length.out = 50),
+                 r = seq(0.5, 1.5, length.out = 50),
+                 theta = seq(0.1, 10, length.out = 50),
                  sigma = seq(0.01, 0.05, length.out = 20))
 
 # Choosing range for sigma
@@ -538,15 +372,16 @@ grid <- crossing(K = seq(0.15, 0.25, length.out = 50),
 
 The number of values for each parameter is chosen to balance computational efficiency while still obtaining smooth posterior distributions for those parameters.
 
-Next, we add some priors that are fairly broad but still include realistic values:
+Next, we add some priors that are very broad but that include values that are biologically possible in our system. More discussion of priors is available in `3-supplementary-models.Rmd`. 
+
 
 ```{r}
 #| eval: false # true to actually run it
 grid <- grid |>
   mutate(
-    log_prior_K = dunif(K, min = 0.15, max = 0.25, log = TRUE),
-    log_prior_r = dunif(r, min = 0.6, max = 1.1, log = TRUE),
-    log_prior_theta = dunif(theta, min = -1, max = 10, log = TRUE),
+    log_prior_K = dunif(K, min = 0.1, max = 0.5, log = TRUE),
+    log_prior_r = dunif(r, min = 0.5, max = 1.5, log = TRUE),
+    log_prior_theta = dunif(theta, min = 0.1, max = 10, log = TRUE),
     log_prior_sigma = dunif(sigma, min = 0.01, max = 0.05, log = TRUE),
     log_prior = log_prior_K + log_prior_r + log_prior_theta + log_prior_sigma
   )
@@ -586,18 +421,17 @@ grid <- grid |>
 rm(max_log_post, log_sum_exp_post, max_log_prior, log_sum_exp_prior)
 
 # select only the columns we need (this really speeds things up down the line)
-#grid <- grid %>%
-#  select(K, r, theta, sigma, prior, posterior)
+grid <- grid %>%
+  select(K, r, theta, sigma, prior, posterior)
 
-#write.csv(grid, "data/grid/grid.csv", row.names = FALSE)
+write.csv(grid, "data/grid/grid.csv", row.names = FALSE)
 ```
 
-The grid above (50 x 50 x 50 x 20) has 2.5 million combinations of parameters, so it takes quite a while to run (~10 mins on an M1 MacBook Pro), so we can just load the grid from a previous run instead:
+The grid above (50 x 50 x 50 x 20) has 2.5 million combinations of parameters, so it takes quite a while to run (~10 mins on an M1 MacBook Pro), so we have the option to just load the grid from a previous run instead:
 
 ```{r}
 grid <- read.csv("data/grid/grid.csv")
 ```
-
 
 To visualise these results, we can first plot the posterior probabilities for each parameter. In these plots, black lines show the posterior probabilities, blue lines the prior probabilities:
 
@@ -655,9 +489,9 @@ plot_grid(p1, p2, p3, p4, nrow = 1)
 rm(p1, p2, p3, p4)
 ```
 
-Evidence of bimodality (theta logistic not flexible enough to fit the density dependence we see in our experiment), which is also obvious in the plots below.
+Evidence of slight bimodality (theta logistic not flexible enough to perfectly fit the density dependence we see in our experiment), which is also obvious in the plots below. However, it is a totally adequate model to statistically verify that the shape of density dependence is superlinear.
 
-We can also randomly draw parameter combinations from the posterior distribution (weighted by their posterior probabilities) and then plot the resulting estimated curve for each of them:
+We can randomly draw parameter combinations from the posterior distribution (weighted by their posterior probabilities) and then plot the resulting estimated curve for each of them:
 
 ```{r, fig.width=4, fig.height=4}
 p <- ggplot() +
@@ -681,94 +515,6 @@ print(p)
 rm(p, smpl, is, i)
 ```
 
-Median prediction (based on median parameter values) and 95% credible intervals (based on predictions from posterior predictive distribution). Option to use HDI or quantile based credible intervals, very similar results but more jagged errors around the prediction.  
-
-```{r, fig.width=4, fig.height=4}
-# Step 1: Set up g values and sample from posteriors (store indices of samples)
-g_seq <- seq(0, 1.1, length = 200)
-n_samples <- 10000
-sample_indices <- sample(1:nrow(grid), n_samples, replace = TRUE, prob = grid$posterior)
-
-
-#### as an aside get the predictions based on median/mean parameter values ..
-samples <- grid[sample_indices, ]
-median_pred <- tibble(g = g_seq) |>
-  rowwise() |>
-  mutate(Neq = Neq(median(samples$K), g, median(samples$r), median(samples$theta)))
-mean_pred <- tibble(g = g_seq) |>
-  rowwise() |>
-  mutate(Neq = Neq(mean(samples$K), g, mean(samples$r), mean(samples$theta)))
-
-# ... or draw that has the highest posterior probability
-max_prob_draw <- grid[which.max(grid$posterior), ]
-max_prob_pred <- tibble(g = g_seq) |>
-  rowwise() |>
-  mutate(Neq = Neq(max_prob_draw$K, g, max_prob_draw$r, max_prob_draw$theta))
-
-
-# Step 2: Compute Neq for each sample across all g
-# This will generate a long-format data frame with each g and each sample's predicted Neq
-all_samples_df <- map_dfr(sample_indices, function(i) {
-  Neq_vals <- map_dbl(g_seq, function(g_val) {
-    Neq(grid$K[i], g_val, grid$r[i], grid$theta[i])
-  })
-  
-  tibble(
-    g = g_seq,
-    Neq = Neq_vals,
-    sample_id = i
-  )
-})
-
-# Step 3: Summarise posterior predictions at each g
-## quantile credible intervals
-credible_df <- all_samples_df |>
-  group_by(g) |>
-  summarise(
-    Neq_lower = quantile(Neq, 0.025, na.rm = TRUE),
-    Neq_median = median(Neq, na.rm = TRUE),
-    .groups = "drop",
-    Neq_upper = quantile(Neq, 0.975, na.rm = TRUE),
-  ) 
-
-## HDI credible intervals
-credible_df2 <- all_samples_df |>
-  group_by(g) |>
-  summarise(
-    hdi_vals = list(hdi(Neq, credMass = 0.95)),
-    Neq_median = median(Neq, na.rm = TRUE),
-    .groups = "drop"
-  ) |>
-  mutate(
-    Neq_lower = map_dbl(hdi_vals, ~ .x[1]),
-    Neq_upper = map_dbl(hdi_vals, ~ .x[2])
-  ) |>
-  select(-hdi_vals)
-
-
-
-# Step 4: Plot the credible intervals
-ggplot() +
-  geom_ribbon(data = credible_df, aes(x = g, ymin = Neq_lower, ymax = Neq_upper), 
-              fill = "grey80", alpha = 0.5) +
-  geom_line(data = credible_df, 
-            aes(x = g, y = Neq_median), color = "black") +
-  geom_point(data = exp_data, aes(x = g, y = Neq_dat), size = 1.5) + 
-  geom_line(data = max_prob_pred, 
-            aes(x = g, y = Neq), col = "red", linetype = "dashed") +
-  geom_line(data = median_pred, 
-            aes(x = g, y = Neq), col = "blue", linetype = "dashed") +
-  geom_line(data = mean_pred, 
-            aes(x = g, y = Neq), col = "orange", linetype = "dashed") +  
-  labs(x = "g", y = "N") +
-  theme_bw()
-
-rm(all_samples_df, g_seq, n_samples, sample_indices, mean_pred, 
-   max_prob_draw, max_prob_pred, samples, Neq)
-
-```
-
-Median from posterior predictive distribution and the prediction based on median parameters almost perfectly overlap, so plot the inverse theta logistic with median parameter values for simplicity.
 
 
 Estimated theta 
@@ -856,7 +602,7 @@ ggplot(data = exp_data, aes(y = Neq_dat, x = g)) +
 
   geom_line(data = curve_data, 
             aes(x = g, y = N), 
-            col = j_green, size = 1, linetype = "dashed") +
+            col = j_green, size = 2, linetype = "dashed") +
   
   #geom_line(
   #  data = prediction_posteriors,
@@ -923,9 +669,7 @@ ggplot(exp_data, aes(x = od_blanked, y = dilution_rate)) +
 
 
 
-
-
-## Predictions across resource dynamics
+## Analytical predictions across alternative resource dynamics
 
 ### Chemostat resources
 
@@ -936,7 +680,7 @@ $$
 \frac{dR}{dt} = d(S - R) - \frac{\mu_{max}R}{k + R}QN
 $$
 
-From above, we know that the analytical expression perfectly predicts the simulations so we can just use that. 
+Through the analytical growth-density inversion approach (outlined more clearly above) we get: 
 
 $$N^* = \frac{d}{\mu Q} \left [\frac{\mu S}{m}  - \frac{mk}{\mu - m} - k \right ]$$
 
@@ -986,7 +730,7 @@ rm(dil_vals, k, m_vals, q, S, u)
 
 The uncertainty around the Monod parameters only influences the density dependence predictions at low densities - after the inflection point, the chemostat dynamics dominate. 
 
-The shape of density dependence will really depend on the underlying mortality of the system (separate form the harvest rate that is being manipulated in the Abram's approach). If there is no mortality, then per capita growth is just the Monod function. Adding in baseline mortality will change the window of density dependence that is being viewed. The parts of the density dependence curves above the dashed lines show you density dependence under three different baseline mortalities (for the three dilutions).
+The shape of density dependence will really depend on the baseline mortality of the system. If there is no mortality, then per capita growth is just the Monod function. Adding in baseline mortality will change the window of density dependence that is being viewed. The parts of the density dependence curves above the dashed lines show you density dependence under three different baseline mortalities (for the three dilutions).
 
 Plot these 9 scenarios separately to avoid any visual biases. 
 
@@ -1036,7 +780,7 @@ rm(df_chemo, df_chemo_posts, p, plot_list, dil, mort, plot_subset)
   
 ```
 
-Dilution rate only changes the x axis range so we can just plot one dilution rate - choose the one that aligns closest to our experiment in terms of the ODs that can be achieved in our reactors. 
+Dilution rate only changes the x axis range so we can just plot one dilution rate.
 
 
 ### Logistic resources
@@ -1049,7 +793,7 @@ $$
 $$
 Instead of $S$ and $d$, we have $r$ (intrinsic growth rate of resource) and $K$ (carrying capacity of resource). 
 
-Again, we can use an analytical solution to predict the equilibrium density of the consumer for this particular model. 
+Again, we can use an analytical growth-density inversion approach to predict the equilibrium density of the consumer for this particular model. 
 
 $$
 N^* = \frac{k r \left( -((k + K) m) + K \mu \right)}{(K q) (m - \mu)^2}
@@ -1097,59 +841,11 @@ ggplot() +
 
 rm(df_log, df_log_posts, k, K_vals, m_vals, q, r, u)
 ```
-It is very hard to find the right parameter values for the logistic growth that lead to fixed point equilibria (i.e., no extinctions and no cycles) over a wide range of mortality values. 
-
-The quota and r determine the equilibrium abundance but don't change the shape of density dependence. Keeping the Monod function fixed, it is the carrying capacity of the logistic model that controls the shape of density dependence. This just controls which part of the functional response is being observed really (i.e., which part of the Monod curve lies above 0). Pick one of these and vary mortality to show the same effect. Increasing K too much leads to cycles at low moralities. Decreasing K too much leads to extinction at high moralities. Very fine range of parameters. 
-
-```{r, fig.width=3, fig.height=3, echo = FALSE, include = FALSE}
-###################################
-#### Simulate for one dilution ####
-###################################
-
-### set initial conditions and paramaters
-t <- seq(0, 100, 1)
-initial_conditions <- c(N = 0.01, R = 0.01)
-
-params <- list(
-  mu_max = mu_med,  
-  k = k_med,          
-  Q = q_med,        
-  m = 0,
-  r = 100,
-  K = 0.0004
-  )
-
-# Run model 
-output <- ode(
-    y = initial_conditions,
-    times = t,
-    func = cr_tII_log,
-    parms = params
-  )
-
-# Convert output to a data frame
-output_df <- as.data.frame(output)
-
-# Plot dynamics
-ggplot(output_df, aes(x = time)) +
-  geom_line(aes(y = N, color = "N")) +
-  geom_line(aes(y = R, color = "R")) +
-  labs(color = "") +
-  xlim(0, 100) +
-  theme_minimal() 
-
-
-rm(output, output_df, params, initial_conditions, t)
-
-```
-
 
 
 ### Pulsed resources
 
-The Abrams method (Growth-Density inversion) doesn't work so well here as the system doesn't ever reach a fixed point equilibrium (pulsed resources lead to cycling dynamics for the consumer). Instead we can get per capita growth rates from the model directly and plot these against consumer density. 
-
-Growth under a single pulse of resources should lead to superlinear density dependence for type II consumers. Add resources at the start, and watch the consumers grow and the resources go down. 
+Growth-density inversion doesn't work so well here as the system doesn't ever reach a fixed point equilibrium (pulsed resources lead to cycling dynamics for the consumer). Instead we can get per capita growth rates from the model directly and plot these against consumer density. 
 
 
 ```{r}
@@ -1226,86 +922,14 @@ plot_grid(p1, p2)
 
 rm(output, output_df, p1, p2, params, sim_results, initial_conditions, t)
 ```
-If we use multiple pulses the same results hold.
-
-The interval between pulses doesn't matter. Even short intervals where the resources aren't depleted fully between pulses doesn't turn the system into a chemostat style resources. There is no resource loss here other than through the consumers. Therefore there is no density dependence of resources for the consumers to "inherit". 
-
-
-```{r, echo = FALSE, include = FALSE}
-
-# hyperparameters 
-total_time <- 100
-pulse_intervals <- 10
-resolution <- 0.001
-pulse_size <- 0.05
-m <- 0.1
-
-# Initial conditions
-initial_conditions <- c(N = 0.01, R = 0.05)
-
-# Time frame
-t <- seq(0, total_time, by = resolution)
-
-# Define pulse times 
-pulse_times <- seq(0, total_time, by = pulse_intervals)
-
-# Set parameters
-params <- list(
-  mu_max = mu_med,
-  k = k_med,
-  Q = q_med,
-  pulse_size = pulse_size,
-  m = m  
-)
-
-# Run the model with events
-output <- ode(
-  y = initial_conditions,
-  times = t,
-  func = cr_tII_pulse,
-  parms = params,
-  events = list(func = pulse_fun, times = pulse_times),
-  method = "ode45"
-)
-
-# Convert to data frame
-output_df <- as.data.frame(output)
-
-# Calculate per-capita growth rate at each timestep
-output_df <- output_df %>%
-  mutate(pcgr = (params$mu_max * R / (params$k + R)) - params$m)
-
-# Plot dynamics
-p1 <- ggplot(output_df, aes(x = time)) +
-  geom_line(aes(y = N, color = "N")) +
-  geom_line(aes(y = R, color = "R")) +
-  labs(color = "") +
-  theme_minimal() 
-
-# Plot per capita growth rate once system is stable
-output_df_stable <- output_df %>%
-  filter(time > 50)
-
-p2 <- ggplot(output_df_stable, aes(x = N, y = pcgr)) +
-  geom_point() +
-  theme_minimal()
-
-plot_grid(p1, p2)
-
-rm(output, output_df, p1, p2, params, initial_conditions, t,
-   output_df_stable, m, pulse_intervals, pulse_size, pulse_times,
-   resolution, total_time)
-```
-
+Note that if we use multiple pulses the same results hold. Similarly, the interval between pulses doesn't matter. Even short intervals where the resources aren't depleted fully between pulses doesn't turn the system into a chemostat style resources. There is no resource loss here other than through the consumers. Therefore there is no density dependence of resources for the consumers to "inherit" (sensu Abrams' principle of inheritance of the curvature). 
 
 
 ### Figure 2
 
 The goal here is to create a 3 x 3 panel plot where the three resource dynamics (chemostat, logistic, pulsed) are crossed with three levels of mortality. 
 
-As the three resources dynamics lead to three different observed maximum growth rates, we can't give all three the same exact mortality values to represent high, medium, and low mortalities. A straightforward solution is to express mortality as a percentage of the observed maximum growth rate (from the Monod). Choosing something like 25%, 50%, and 75%  mortality (relative to max growth) is the best way to show the full range of impacts that baseline mortality has on the observed density dependence. 
-
-The choices of dilution rate for the chemostat model and carrying capacity of resource for the logistic model are somewhat arbitrary. Here we will select the "middle" dilution rate that we tested in our experiment, which produces OD equilibrium densities for different harvest rates that are feasible in our system. For the logistic model, we'll select the highest carrying capacity that is possible before the system goes into cycles so that the densities of the consumers (OD) are closest to those seen in our experiments. 
+As the three resources dynamics lead to three different observed maximum growth rates, we can't give all three the same exact mortality values to represent high, medium, and low mortalities. A straightforward solution is to express mortality as a percentage of the observed maximum growth rate (from the Monod). Choosing something like 25%, 50%, and 75%  mortality (relative to max growth) seems like the most straightforward way to show the full range of impacts that baseline mortality has on the observed density dependence. 
 
 Collect the data first (chemostat and logistic have analytical solutions, pulsed needs to be simulated).
 
@@ -1461,155 +1085,4 @@ rm(data, data2, datasets, datasets2, p, plot_list, plot_list_ordered,
    i, custom_order, mort, mort_fracs, mort_value, n, max_growth, plot_subset)
 
 ```
-
-
-It is also possible to have just three plots (one for each mortality, or one for each resource dynamic) that each have three lines (one for each resource dynamic, or one for each mortality). To do this, we'll need to rescale the axes. Y axis could be scaled between maximum observed per capita growth and mortality. X axis could be scaled between 0 and carrying capacity. The problem with this approach is that it collapses all of the posteriors on top of each other so the uncertainty is hidden. 
-
-
-```{r, fig.height=3, fig.width=9, echo = FALSE, include = FALSE}
-mort_plot <- function(mort) {
-
-  chemo_max <- max(df_chemo$pcgr, na.rm = TRUE)
-  chemo_mort_value <- mort * chemo_max
-  chemo_plot <- df_chemo %>%
-    filter(pcgr > chemo_mort_value) %>%
-    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
-    mutate(avg_od_rs = N / max(N, na.rm = TRUE))
-  
-  log_max <- max(df_log$pcgr, na.rm = TRUE)
-  log_mort_value <- mort * log_max
-  log_plot <- df_log %>%
-    filter(pcgr > log_mort_value) %>%
-    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
-    mutate(avg_od_rs = N / max(N, na.rm = TRUE))
-  
-  pulse_max <- max(df_pulse$pcgr, na.rm = TRUE)
-  pulse_mort_value <- mort * pulse_max
-  pulse_plot <- df_pulse %>%
-    filter(pcgr > pulse_mort_value) %>%
-    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
-    mutate(avg_od_rs = N / max(N, na.rm = TRUE))
-  
-  
-  
-  ## posteriors 
-  chemo_p_plot <- df_chemo_posts %>%
-    group_by(draw) %>%
-    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
-    filter(pcgr_rs > mort) %>%
-    mutate(pcgr_rs_2 = (pcgr_rs - min(pcgr_rs, na.rm = TRUE)) / (max(pcgr_rs, na.rm = TRUE) - min(pcgr_rs, na.rm = TRUE))) %>%
-    mutate(avg_od_rs = N / max(N, na.rm = TRUE)) %>%
-    ungroup() 
-  
-  log_p_plot <- df_log_posts %>%
-    group_by(draw) %>%
-    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
-    filter(pcgr_rs > mort) %>%
-    mutate(pcgr_rs_2 = (pcgr_rs - min(pcgr_rs, na.rm = TRUE)) / (max(pcgr_rs, na.rm = TRUE) - min(pcgr_rs, na.rm = TRUE))) %>%
-    mutate(avg_od_rs = N / max(N, na.rm = TRUE)) %>%
-    ungroup() 
-    
-  pulse_p_plot <- df_pulse_posts %>%
-    group_by(draw) %>%
-    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
-    filter(pcgr_rs > mort) %>%
-    mutate(pcgr_rs_2 = (pcgr_rs - min(pcgr_rs, na.rm = TRUE)) / (max(pcgr_rs, na.rm = TRUE) - min(pcgr_rs, na.rm = TRUE))) %>%
-    mutate(avg_od_rs = N / max(N, na.rm = TRUE)) %>%
-    ungroup() 
-  
-  
-  
-  
-  ggplot() +
-    
-    geom_line(data = chemo_p_plot, aes(x = avg_od_rs, y = pcgr_rs_2, group = draw), 
-              size = 0.5, color = "cyan3", alpha = 0.1) +
-    geom_line(data = log_p_plot, aes(x = avg_od_rs, y = pcgr_rs_2, group = draw), 
-              size = 0.5, color = "darkorange" , alpha = 0.1) +
-    geom_line(data = pulse_p_plot, aes(x = avg_od_rs, y = pcgr_rs_2, group = draw), 
-              size = 0.5, color = "maroon", alpha = 0.1) +
-    
-    #geom_line(data = chemo_plot, aes(x = avg_od_rs, y = pcgr_rs), 
-    #          size = 1.5, color = "cyan3") +
-    #geom_line(data = log_plot, aes(x = avg_od_rs, y = pcgr_rs), 
-    #          size = 1.5, color = "darkorange") +
-    #geom_line(data = pulse_plot, aes(x = avg_od_rs, y = pcgr_rs), 
-    #          size = 1.5, color = "maroon") +
-    labs(y = "", x = "") +
-    theme_minimal() +
-    theme(legend.position = "none")
-}
-
-
-  
-p1 <- mort_plot(0.25) 
-p2 <- mort_plot(0.5) 
-p3 <- mort_plot(0.75) 
-
-
-  
-# Display all plots
-plot_grid(p1, p2, p3, ncol = 3, nrow = 1)
-  
-```
-
-
-```{r, fig.height=3, fig.width=9, include = FALSE, echo = FALSE}
-
-rescale_plot <- function(mean_data, posts_data) {
-  
-  mort <- c(0.25, 0.5, 0.75)
-  
-  ## posteriors 
-  p_plot_1 <- posts_data %>%
-    group_by(draw) %>%
-    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
-    filter(pcgr_rs > mort[1]) %>%
-    mutate(pcgr_rs_2 = (pcgr_rs - min(pcgr_rs, na.rm = TRUE)) / (max(pcgr_rs, na.rm = TRUE) - min(pcgr_rs, na.rm = TRUE))) %>%
-    mutate(avg_od_rs = N / max(N, na.rm = TRUE)) %>%
-    ungroup() 
-  
-  p_plot_2 <- posts_data %>%
-    group_by(draw) %>%
-    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
-    filter(pcgr_rs > mort[2]) %>%
-    mutate(pcgr_rs_2 = (pcgr_rs - min(pcgr_rs, na.rm = TRUE)) / (max(pcgr_rs, na.rm = TRUE) - min(pcgr_rs, na.rm = TRUE))) %>%
-    mutate(avg_od_rs = N / max(N, na.rm = TRUE)) %>%
-    ungroup() 
-  
-  p_plot_3 <- posts_data %>%
-    group_by(draw) %>%
-    mutate(pcgr_rs = pcgr / max(pcgr, na.rm = TRUE)) %>%
-    filter(pcgr_rs > mort[3]) %>%
-    mutate(pcgr_rs_2 = (pcgr_rs - min(pcgr_rs, na.rm = TRUE)) / (max(pcgr_rs, na.rm = TRUE) - min(pcgr_rs, na.rm = TRUE))) %>%
-    mutate(avg_od_rs = N / max(N, na.rm = TRUE)) %>%
-    ungroup() 
-  
-  
-  
-  ggplot() +
-    geom_line(data = p_plot_1, aes(x = avg_od_rs, y = pcgr_rs_2, group = draw), 
-              size = 0.5, color = "gray10", alpha = 0.1) +
-    geom_line(data = p_plot_2, aes(x = avg_od_rs, y = pcgr_rs_2, group = draw), 
-              size = 0.5, color = "gray40", alpha = 0.1) +
-    geom_line(data = p_plot_3, aes(x = avg_od_rs, y = pcgr_rs_2, group = draw), 
-              size = 0.5, color = "gray70", alpha = 0.1) +
-    labs(y = "", x = "") +
-    theme_minimal() +
-    theme(legend.position = "none")
-}
-  
-
-p1 <- rescale_plot(df_chemo, df_chemo_posts)
-p2 <- rescale_plot(df_log, df_log_posts)
-p3 <- rescale_plot(df_pulse, df_pulse_posts)
-
-
-
-  
-# Display all plots
-plot_grid(p1, p2, p3, ncol = 3, nrow = 1)
-```
-
-
 
