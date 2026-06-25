@@ -1,4 +1,4 @@
-Data and code associated with the paper: "Growth-density inversion in \textit{E. coli} reveals superlinear, not sublinear, density dependence" by James A Orr, Kaleigh E Davis, Alicia H Williams, Jan Engelstadter, Daniel B Stouffer, and Andrew D Letten.
+Data and code associated with the paper: "Growth-density inversion in E. coli reveals superlinear, not sublinear, density dependence" by James A Orr, Kaleigh E Davis, Alicia H Williams, Jan Engelstadter, Daniel B Stouffer, and Andrew D Letten.
 
 "data" folder contains the raw data used in this study. It also contains the processed data that is used for modelling and plotting, the estimated Monod parameters for the E. coli strain used in our study (in the fits subfolder), and theoretical predictions based on consumer-resource theory (in the theory subfolder). 
 
